@@ -14,129 +14,77 @@ export const ArcGlobe: React.FC = () => {
 
     useEffect(() => {
         let view: any;
-        let worker: Worker | null = null;
+        let workerClient: any = null;
+        let tickLoop: any = null;
         let satelliteLayer: any;
         let debrisLayer: any;
         let tracksLayer: any;
         const graphics: any[] = [];
 
-        function getSatPointFromTle(date: Date, tle1: string, tle2: string) {
-            try {
-                const satrec = window.satellite.twoline2satrec(tle1, tle2);
-                const pv = window.satellite.propagate(
-                    satrec,
-                    date.getUTCFullYear(),
-                    date.getUTCMonth() + 1,
-                    date.getUTCDate(),
-                    date.getUTCHours(),
-                    date.getUTCMinutes(),
-                    date.getUTCSeconds()
-                );
-                const positionEci = pv.position;
-                if (!positionEci) return null;
-                const gmst = window.satellite.gstime(date);
-                const gd = window.satellite.eciToGeodetic(positionEci, gmst);
-                if (!gd) return null;
-                let lon = gd.longitude;
-                const lat = gd.latitude;
-                const hKm = gd.height;
-                if ([lon, lat, hKm].some((v) => Number.isNaN(v))) return null;
-                const rad2deg = 180 / Math.PI;
-                while (lon < -Math.PI) lon += 2 * Math.PI;
-                while (lon > Math.PI) lon -= 2 * Math.PI;
-                return {
-                    type: 'point',
-                    x: lon * rad2deg,
-                    y: lat * rad2deg,
-                    z: hKm * 1000,
-                    spatialReference: { wkid: 4326 },
-                } as const;
-            } catch {
-                return null;
-            }
-        }
-
-        function createTrackPolyline(pointsLngLatZ: number[][]) {
-            return { type: 'polyline', paths: [pointsLngLatZ], spatialReference: { wkid: 4326 } } as const;
-        }
+        let isInteracting = false; void isInteracting;
+        let chunker: any = null;
 
         function start(Map: any, SceneView: any, GraphicsLayer: any, Graphic: any) {
-            const map = new Map({ basemap: 'satellite', ground: 'world-elevation' });
-
-            view = new SceneView({
-                container: divRef.current!,
-                map,
-                qualityProfile: 'high',
-                constraints: { altitude: { max: 12000000000 } },
-                environment: {
-                    lighting: { date: new Date(), directShadowsEnabled: false },
-                    atmosphereEnabled: true,
-                    starsEnabled: true,
-                },
-                popup: { dockEnabled: true, dockOptions: { breakpoint: false } },
-            });
-
-            satelliteLayer = new GraphicsLayer();
-            debrisLayer = new GraphicsLayer();
-            tracksLayer = new GraphicsLayer();
-            map.addMany([satelliteLayer, debrisLayer, tracksLayer]);
+            const scene = (window as any).ArcgisLayers?.createGlobeScene(divRef.current!, Map, SceneView, GraphicsLayer);
+            view = scene.view;
+            satelliteLayer = scene.layers.satellites;
+            debrisLayer = scene.layers.debris;
+            tracksLayer = scene.layers.tracks;
 
             function addSatGraphic(sat: any) {
                 const now = new Date();
-                const pt = getSatPointFromTle(now, sat.tle1, sat.tle2);
+                const pt = (window as any).ArcgisCoords?.getSatPointFromTle(now, sat.tle1, sat.tle2);
                 if (!pt) return;
-                const g = new Graphic({
-                    geometry: pt,
-                    symbol: { type: 'picture-marker', url: 'https://i.ibb.co/0y1d3Zk/Sat-PNG.png', width: 8, height: 8 },
-                    attributes: {
-                        name: sat.name || 'SAT',
-                        id: graphics.length,
-                        tle1: sat.tle1,
-                        tle2: sat.tle2,
-                        t0: Date.now(),
-                        norad: sat.norad || null,
-                        launchDate: sat.launchDate || null,
-                        country: sat.country || null,
-                    },
-                    popupEnabled: false,
+                const g = (window as any).ArcgisLayers?.addSatGraphic(satelliteLayer, Graphic, pt, {
+                    name: sat.name || 'SAT',
+                    id: graphics.length,
+                    tle1: sat.tle1,
+                    tle2: sat.tle2,
+                    t0: Date.now(),
+                    norad: sat.norad || null,
+                    launchDate: sat.launchDate || null,
+                    country: sat.country || null,
                 });
-                satelliteLayer.add(g);
                 graphics.push(g);
             }
 
             function addDebrisGraphic(sat: any) {
                 const now = new Date();
-                const pt = getSatPointFromTle(now, sat.tle1, sat.tle2);
+                const pt = (window as any).ArcgisCoords?.getSatPointFromTle(now, sat.tle1, sat.tle2);
                 if (!pt) return;
-                const g = new Graphic({
-                    geometry: pt,
-                    symbol: { type: 'simple-marker', style: 'circle', color: [200, 200, 200, 0.7], size: 2 },
-                    attributes: { name: sat.name || 'DEBRIS', tle1: sat.tle1, tle2: sat.tle2 },
-                });
-                debrisLayer.add(g);
+                (window as any).ArcgisLayers?.addDebrisGraphic(debrisLayer, Graphic, pt, { name: sat.name || 'DEBRIS', tle1: sat.tle1, tle2: sat.tle2 });
             }
 
             function drawTrackForGraphic(graphic: any) {
-                tracksLayer.removeAll();
-                if (!worker) {
-                    const positions: number[][] = [];
-                    const minutes = 60 * 24;
-                    const startTime = new Date();
-                    for (let i = 0; i < minutes; i++) {
-                        const t = new Date(startTime.getTime() + i * 60 * 1000);
-                        const pt = getSatPointFromTle(t, graphic.attributes.tle1, graphic.attributes.tle2);
-                        if (pt) positions.push([pt.x, pt.y, pt.z]);
-                    }
-                    if (positions.length > 1) {
-                        const line = new Graphic({
-                            geometry: createTrackPolyline(positions),
-                            symbol: { type: 'line-3d', symbolLayers: [{ type: 'line', size: 2, material: { color: [192, 192, 192, 0.6] } }] },
-                        });
-                        tracksLayer.add(line);
-                    }
-                    return;
+                if (workerClient && (window as any).ArcgisTracks) {
+                    (window as any).ArcgisTracks.drawTrackForGraphic(
+                        graphic,
+                        tracksLayer,
+                        workerClient,
+                        Graphic,
+                        (window as any).ArcgisCoords.createTrackPolyline
+                    );
+                } else {
+                    // Simple fallback: compute on main thread (rare)
+                    try {
+                        tracksLayer.removeAll();
+                        const positions: number[][] = [];
+                        const minutes = 60 * 24;
+                        const startTime = new Date();
+                        for (let i = 0; i < minutes; i++) {
+                            const t = new Date(startTime.getTime() + i * 60 * 1000);
+                            const pt = (window as any).ArcgisCoords?.getSatPointFromTle(t, graphic.attributes.tle1, graphic.attributes.tle2);
+                            if (pt) positions.push([pt.x, pt.y, pt.z]);
+                        }
+                        if (positions.length > 1) {
+                            const line = new Graphic({
+                                geometry: (window as any).ArcgisCoords.createTrackPolyline(positions),
+                                symbol: { type: 'line-3d', symbolLayers: [{ type: 'line', size: 2, material: { color: [192, 192, 192, 0.6] } }] },
+                            });
+                            tracksLayer.add(line);
+                        }
+                    } catch { }
                 }
-                worker.postMessage({ type: 'track', id: graphic.attributes.id });
             }
 
             view.when(() => {
@@ -199,52 +147,33 @@ export const ArcGlobe: React.FC = () => {
                         })
                         : { main: [], debris: [], vimpel: [], extra: [], celestrak: {} };
 
+
                     (datasets.main || []).slice(0, MAX_SATS).forEach(addSatGraphic);
                     (datasets.debris || []).slice(0, 5000).forEach(addDebrisGraphic);
 
                     try {
-                        // Use classic worker served from public to avoid bundler issues
-                        worker = new Worker('/arcgis/worker.js');
+                        // Wrap worker via simple client
+                        workerClient = (window as any).ArcgisWorkerClient?.createSatWorkerClient('/arcgis/worker.js');
                         const payload = (datasets.main || []).slice(0, MAX_SATS).map((s: any, idx: number) => ({ id: idx, name: s.name || 'SAT', tle1: s.tle1, tle2: s.tle2 }));
-                        worker.postMessage({ type: 'init', payload });
+                        workerClient.init(payload);
 
-                        worker.onmessage = (ev: MessageEvent) => {
-                            const data: any = ev.data || {};
-                            if (data.type === 'positions' && data.positions && (data.positions as ArrayBuffer)) {
-                                const arr = new Float32Array(data.positions);
-                                for (let i = 0; i < graphics.length; i++) {
-                                    const j = i * 3;
-                                    const x = arr[j], y = arr[j + 1], z = arr[j + 2];
-                                    if (!Number.isNaN(x) && !Number.isNaN(y) && !Number.isNaN(z)) {
-                                        graphics[i].geometry = { type: 'point', x, y, z, spatialReference: { wkid: 4326 } };
-                                    }
-                                }
-                            } else if (data.type === 'track' && data.positions) {
-                                const arr = new Float32Array(data.positions);
-                                const path: number[][] = [];
-                                for (let k = 0; k < arr.length; k += 3) {
-                                    const x = arr[k], y = arr[k + 1], z = arr[k + 2];
-                                    if (!Number.isNaN(x) && !Number.isNaN(y) && !Number.isNaN(z)) path.push([x, y, z]);
-                                }
-                                if (path.length > 1) {
-                                    const line = new Graphic({
-                                        geometry: createTrackPolyline(path),
-                                        symbol: { type: 'line-3d', symbolLayers: [{ type: 'line', size: 2, material: { color: [192, 192, 192, 0.6] } }] },
-                                    });
-                                    tracksLayer.add(line);
-                                }
-                            }
-                        };
+                        workerClient.onPositions((arr: Float32Array) => {
+                            if (!chunker) chunker = (window as any).ArcgisChunker?.createGeometryChunker(graphics, 4326);
+                            if (chunker) chunker.feed(arr);
+                        });
 
-                        setInterval(() => {
-                            if (worker) worker.postMessage({ type: 'tick', time: Date.now() });
+                        // Visibility-aware ticking
+                        tickLoop = (window as any).ArcgisTickLoop?.createVisibilityTickLoop(() => {
+                            try { workerClient.requestTick(Date.now()); } catch { }
                         }, 1000);
+
+                        view.watch('interacting', (v: boolean) => { if (chunker) chunker.setInteracting(!!v); });
                     } catch {
                         setInterval(() => {
                             const now = new Date();
                             for (let i = 0; i < graphics.length; i++) {
                                 const g = graphics[i];
-                                const pt = getSatPointFromTle(now, g.attributes.tle1, g.attributes.tle2);
+                                const pt = (window as any).ArcgisCoords?.getSatPointFromTle(now, g.attributes.tle1, g.attributes.tle2);
                                 if (pt) g.geometry = pt;
                             }
                         }, 1000);
@@ -275,7 +204,9 @@ export const ArcGlobe: React.FC = () => {
 
         return () => {
             try { (view as any)?.destroy?.(); } catch { }
-            try { worker?.terminate?.(); } catch { }
+            try { workerClient?.dispose?.(); } catch { }
+            try { tickLoop?.dispose?.(); } catch { }
+            try { chunker?.dispose?.(); } catch { }
         };
     }, []);
 

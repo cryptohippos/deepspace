@@ -63,7 +63,6 @@
     async function loadSatTLEs(opts) {
         const apiUrl = opts?.apiUrl || 'https://api.keeptrack.space/v3/sats';
         const asciiUrl = opts?.asciiUrl || '../tle/TLE.txt';
-        console.log('loading tles from', apiUrl, asciiUrl);
         try {
             return await fetchApiTles(apiUrl);
         } catch (e) {
@@ -78,26 +77,12 @@
         return await res.json();
     }
 
-    async function fetchDebris(url) {
-        const json = await fetchJsonArray(url);
-        return normalizeApiItems(json);
-    }
-
-    async function fetchVimpel(url) {
-        const json = await fetchJsonArray(url);
-        return normalizeApiItems(json);
-    }
-
+    async function fetchDebris(url) { const json = await fetchJsonArray(url); return normalizeApiItems(json); }
+    async function fetchVimpel(url) { const json = await fetchJsonArray(url); return normalizeApiItems(json); }
     async function fetchExtra(extraUrl) {
-        try {
-            const json = await fetchJsonArray(extraUrl);
-            const n = normalizeApiItems(json);
-            return n;
-        } catch (e) {
-            return [];
-        }
+        try { const json = await fetchJsonArray(extraUrl); return normalizeApiItems(json); }
+        catch (e) { return []; }
     }
-
     async function fetchCelestrakGroup(group) {
         const url = `https://celestrak.org/NORAD/elements/gp.php?GROUP=${encodeURIComponent(group)}&FORMAT=3LE`;
         const res = await withTimeout(fetch(url, { cache: 'no-cache' }), 12000);
@@ -123,20 +108,15 @@
             (async () => { try { results.debris = await fetchDebris(debrisUrl); } catch (e) { } })(),
             (async () => { try { results.vimpel = await fetchVimpel(vimpelUrl); } catch (e) { } })(),
             (async () => { try { results.extra = await fetchExtra(extraUrl); } catch (e) { } })(),
-            (async () => {
-                for (const g of groups) {
-                    try { results.celestrak[g] = await fetchCelestrakGroup(g); } catch (e) { results.celestrak[g] = []; }
-                }
-            })(),
+            (async () => { for (const g of groups) { try { results.celestrak[g] = await fetchCelestrakGroup(g); } catch (e) { results.celestrak[g] = []; } } })(),
         ]);
 
         return results;
     }
 
-    window.ArcgisDataLoader = {
-        loadSatTLEs,
-        loadAllSources,
-    };
+    window.ArcgisDataLoader = { loadSatTLEs, loadAllSources };
 })();
+
+
 
 
