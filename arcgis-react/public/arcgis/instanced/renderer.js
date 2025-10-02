@@ -193,6 +193,8 @@
             baseSize: (options && options.baseSize) || 9.0,
             minSize: (options && options.minSize) || 2.5,
             maxSize: (options && options.maxSize) || 14.0,
+            baseSizeDefault: (options && options.baseSize) || 9.0,
+            maxSizeDefault: (options && options.maxSize) || 14.0,
             sizeD0: (options && options.sizeD0) || 7.0e6,
             selectedId: -1, // -1 means no selection
             highlightedId: -1, // -1 means no highlight
@@ -409,6 +411,14 @@
             if (color) {
                 state.highlightColor = color;
             }
+            // If highlighting a single satellite without filtering others, make it bigger without shader changes
+            if (!state.hideNonHighlighted && state.highlightedId !== -1) {
+                state.baseSize = state.baseSizeDefault * 10.0;
+                state.maxSize = state.maxSizeDefault * 10.0;
+            } else if (state.highlightedId === -1 && !state.hideNonHighlighted) {
+                state.baseSize = state.baseSizeDefault;
+                state.maxSize = state.maxSizeDefault;
+            }
             if (DEBUG) {
                 console.log('setHighlightedSatellite:', { id, color, hideOthers, state: { highlightedId: state.highlightedId, hideNonHighlighted: state.hideNonHighlighted } });
             }
@@ -435,6 +445,10 @@
                 if (color) {
                     state.highlightColor = color;
                 }
+                // Dynamic size multiplier based on count buckets
+                const m = applied < 10 ? 10.0 : applied < 100 ? 5.0 : applied < 1000 ? 3.0 : 2.0;
+                state.baseSize = state.baseSizeDefault * m;
+                state.maxSize = state.maxSizeDefault * m;
             } else {
                 resetVisibility();
             }
@@ -458,6 +472,8 @@
             }
             state.visibility.fill(1);
             state.hideNonHighlighted = false;
+            state.baseSize = state.baseSizeDefault;
+            state.maxSize = state.maxSizeDefault;
             if (DEBUG) {
                 console.log('resetVisibility');
             }

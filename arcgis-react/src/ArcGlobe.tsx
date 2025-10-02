@@ -7,6 +7,7 @@ import { type SatelliteFormData } from './components/features/CreateSatellite';
 import { Footer } from './components/footer';
 import { Header } from './components/header';
 import type { FilterCriteria } from './components/header/FilterPanel';
+import { createResetViewHandler } from './components/header/ResetView';
 import { SatelliteService, type SatelliteData } from './services/satelliteService';
 import { TooltipService } from './services/tooltipService';
 
@@ -22,6 +23,9 @@ declare global {
 export const ArcGlobe: React.FC = () => {
     const divRef = useRef<HTMLDivElement | null>(null);
     const instancedApiRef = useRef<any>(null);
+    const tracksLayerRef = useRef<__esri.GraphicsLayer | null>(null);
+    const trackGraphicsRef = useRef<Map<number, __esri.Graphic>>(new Map());
+    const selectedIdRef = useRef<number | null>(null);
     const isLoadingRef = useRef(true);
     const [isLoading, setIsLoading] = useState(true);
     const satelliteService = SatelliteService.getInstance();
@@ -36,21 +40,18 @@ export const ArcGlobe: React.FC = () => {
 
     const [filterPanelVisible, setFilterPanelVisible] = useState(false);
 
-    const handleGlobalReset = () => {
-        const api = instancedApiRef.current;
-        if (api) {
-            api.resetVisibility?.();
-            api.setHighlightedSatellite?.(null, undefined, false);
-            api.setSelectedId?.(-1);
-        }
-        tooltipService.hideTooltip();
-
-        setShowCollisionAnalysis(false);
-        setShowConstellationAnalysis(false);
-        setShowDebrisScanner(false);
-        setShowCreateSatellite(false);
-        setSelectedFeature(null);
-    };
+    const handleGlobalReset = createResetViewHandler({
+        instancedApiRef,
+        tooltipService,
+        tracksLayerRef,
+        trackGraphicsRef,
+        selectedIdRef,
+        setShowCollisionAnalysis,
+        setShowConstellationAnalysis,
+        setShowDebrisScanner,
+        setShowCreateSatellite,
+        setSelectedFeature
+    });
 
     const handleConstellationSelect = (constellation: Constellation) => {
         console.log('Constellation selected:', constellation);
@@ -270,11 +271,10 @@ export const ArcGlobe: React.FC = () => {
         let view: any;
         let worker: Worker | null = null;
         let tracksLayer: any;
+        let metaRef: any[] = [];
         const useInstanced = true;
         const DEBUG = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('debug') === '1';
         let instancedApi: any = null;
-        let selectedId: number | null = null;
-        let metaRef: any[] = [];
         // Hover picking throttling and drag gating
         let isDragging = false;
         let lastHoverId: number = -2;
@@ -324,9 +324,18 @@ export const ArcGlobe: React.FC = () => {
                     const id = instancedApi!.pick(lastMoveX, lastMoveY);
                     if (id !== lastHoverId) {
                         lastHoverId = id;
-                        if (id >= 0 && id !== selectedId) {
-                            const html = tooltipService.generateSatelliteTooltip(id, true);
-                            if (html) tooltipService.showTooltip(lastMoveX, lastMoveY, html);
+                        if (id >= 0) {
+                            const isSameAsSelected = id === selectedIdRef.current;
+                            if (!isSameAsSelected) {
+                                const html = tooltipService.generateSatelliteTooltip(id, true);
+                                if (html) {
+                                    tooltipService.showTooltip(lastMoveX, lastMoveY, html);
+                                } else {
+                                    tooltipService.hideTooltip();
+                                }
+                            } else {
+                                tooltipService.hideTooltip();
+                            }
                         } else {
                             tooltipService.hideTooltip();
                         }
@@ -353,6 +362,7 @@ export const ArcGlobe: React.FC = () => {
 
             tracksLayer = new GraphicsLayer();
             map.add(tracksLayer);
+            tracksLayerRef.current = tracksLayer;
 
             // If instanced, attach external renderer
             if (useInstanced) {
@@ -375,9 +385,15 @@ export const ArcGlobe: React.FC = () => {
                                     const id = instancedApi.pick(evt.x, evt.y);
                                     if (id < 0) {
                                         // Clicked on empty space - clear selection
-                                        if (selectedId !== null) {
-                                            tracksLayer.removeAll();
-                                            selectedId = null;
+                                        if (selectedIdRef.current !== null) {
+                                            if (trackGraphicsRef.current.has(selectedIdRef.current)) {
+                                                const graphic = trackGraphicsRef.current.get(selectedIdRef.current);
+                                                if (graphic) {
+                                                    tracksLayerRef.current?.remove(graphic);
+                                                }
+                                                trackGraphicsRef.current.delete(selectedIdRef.current);
+                                            }
+                                            selectedIdRef.current = null;
                                             tooltipService.hideTooltip();
                                             // Clear selection in renderer
                                             instancedApi.setSelectedId(-1);
@@ -385,16 +401,20 @@ export const ArcGlobe: React.FC = () => {
                                         return;
                                     }
 
-                                    if (id === selectedId) {
+                                    if (id === selectedIdRef.current) {
                                         // Clicked on same satellite - toggle off
-                                        tracksLayer.removeAll();
-                                        selectedId = null;
+                                        const graphic = trackGraphicsRef.current.get(id);
+                                        if (graphic) {
+                                            tracksLayerRef.current?.remove(graphic);
+                                            trackGraphicsRef.current.delete(id);
+                                        }
+                                        selectedIdRef.current = null;
                                         tooltipService.hideTooltip();
                                         // Clear selection in renderer
                                         instancedApi.setSelectedId(-1);
                                     } else {
                                         // Clicked on different satellite - show orbit and info
-                                        selectedId = id;
+                                        selectedIdRef.current = id;
                                         // Highlight selected satellite in renderer
                                         instancedApi.setSelectedId(id);
 
@@ -548,6 +568,7 @@ export const ArcGlobe: React.FC = () => {
                                 if (data.type === 'log' && DEBUG) { console.log('[worker]', data.msg); return; }
                                 // Ignore PV for now; renderer expects lon/lat/h. Use 'positions' path below.
                                 if (data.type === 'positions' && data.positions) {
+                                    console.log('ArcGlobe: Received positions from worker');
                                     const arr = data.positions instanceof Float32Array ? data.positions : new Float32Array(data.positions as ArrayBuffer);
                                     if (useInstanced && instancedApi) {
                                         const count = Math.floor(arr.length / 3);
@@ -572,6 +593,13 @@ export const ArcGlobe: React.FC = () => {
                                             geometry: createTrackPolyline(path),
                                             symbol: { type: 'line-3d', symbolLayers: [{ type: 'line', size: 2, material: { color: [192, 192, 192, 0.6] } }] },
                                         });
+                                        if (typeof data.id === 'number') {
+                                            const existing = trackGraphicsRef.current.get(data.id);
+                                            if (existing) {
+                                                tracksLayer.remove(existing);
+                                            }
+                                            trackGraphicsRef.current.set(data.id, line);
+                                        }
                                         tracksLayer.add(line);
                                     }
                                 }
@@ -614,6 +642,12 @@ export const ArcGlobe: React.FC = () => {
             try { (view as any)?.destroy?.(); } catch { }
             try { worker?.terminate?.(); } catch { }
             try { tooltipService.dispose(); } catch { }
+            trackGraphicsRef.current.forEach((graphic) => {
+                tracksLayerRef.current?.remove?.(graphic);
+            });
+            trackGraphicsRef.current.clear();
+            tracksLayerRef.current = null;
+            selectedIdRef.current = null;
             setIsLoading(false);
             isLoadingRef.current = false;
         };
@@ -642,10 +676,9 @@ export const ArcGlobe: React.FC = () => {
                 isFilterOpen={filterPanelVisible}
                 onToggleFilters={handleToggleFilters}
                 onApplyFilters={handleApplyFilters}
+                onResetView={handleGlobalReset}
+                resetDisabled={isLoading}
             />
-            <button className="reset-view-button" onClick={handleGlobalReset} type="button" title="Reset to all satellites">
-                Reset View
-            </button>
             <Footer
                 isVisible={!!activeFeature}
                 title={activeFeatureTitle}
