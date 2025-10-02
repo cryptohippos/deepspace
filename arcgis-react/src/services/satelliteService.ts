@@ -33,6 +33,9 @@ export class SatelliteService {
     private metaRef: SatelliteData[] = [];
     private worker: Worker | null = null;
     private nextUserSatelliteId = 30000;
+    private noradIndex = new Map<string, SatelliteData>();
+    private nameIndex = new Map<string, SatelliteData>();
+    private listeners: Array<() => void> = [];
 
     static getInstance(): SatelliteService {
         if (!SatelliteService.instance) {
@@ -44,7 +47,36 @@ export class SatelliteService {
     initialize(metadata: SatelliteData[], worker: Worker) {
         this.metaRef = metadata;
         this.worker = worker;
+        this.noradIndex.clear();
+        this.nameIndex.clear();
+
+        const addNoradVariants = (norad: string | undefined, sat: SatelliteData) => {
+            if (!norad) return;
+            const trimmed = norad.trim();
+            if (!trimmed) return;
+            this.noradIndex.set(trimmed, sat);
+            const numeric = trimmed.replace(/[^0-9]/g, '');
+            if (numeric) {
+                this.noradIndex.set(numeric, sat);
+                this.noradIndex.set(numeric.padStart(5, '0'), sat);
+            }
+        };
+
+        const addNameVariant = (name: string | undefined, sat: SatelliteData) => {
+            if (!name) return;
+            const normalized = this.normalizeName(name);
+            if (!normalized) return;
+            if (!this.nameIndex.has(normalized)) {
+                this.nameIndex.set(normalized, sat);
+            }
+        };
+
+        for (const sat of metadata) {
+            addNoradVariants(sat.norad, sat);
+            addNameVariant(sat.name, sat);
+        }
         console.log('SatelliteService: Initialized with', metadata.length, 'satellites and worker:', !!worker);
+        this.notifyListeners();
     }
 
     createSatellite(formData: SatelliteFormData): SatelliteData {
@@ -69,6 +101,20 @@ export class SatelliteService {
         // Add to metadata array
         this.metaRef.push(newSatellite);
 
+        // Update indexes
+        const normalizedName = this.normalizeName(newSatellite.name);
+        if (normalizedName && !this.nameIndex.has(normalizedName)) {
+            this.nameIndex.set(normalizedName, newSatellite);
+        }
+        const noradVariants = [newSatellite.norad, newSatellite.norad.replace(/[^0-9]/g, ''), newSatellite.norad.replace(/[^0-9]/g, '').padStart(5, '0')];
+        for (const variant of noradVariants) {
+            if (variant) {
+                this.noradIndex.set(variant, newSatellite);
+            }
+        }
+
+        this.notifyListeners();
+
         // Update worker with new satellite
         if (this.worker) {
             console.log('SatelliteService: Sending satellite to worker:', newSatellite);
@@ -92,6 +138,13 @@ export class SatelliteService {
         return this.metaRef;
     }
 
+    subscribe(listener: () => void): () => void {
+        this.listeners.push(listener);
+        return () => {
+            this.listeners = this.listeners.filter((l) => l !== listener);
+        };
+    }
+
     getUserCreatedSatellites(): SatelliteData[] {
         return this.metaRef.filter(sat => sat.isUserCreated);
     }
@@ -103,6 +156,76 @@ export class SatelliteService {
             sat.norad.includes(query) ||
             sat.country.toLowerCase().includes(lowerQuery)
         );
+    }
+
+    getSatelliteByNorad(noradId: string): SatelliteData | undefined {
+        const trimmed = noradId.trim();
+        if (this.noradIndex.has(trimmed)) {
+            return this.noradIndex.get(trimmed);
+        }
+        const numeric = trimmed.replace(/[^0-9]/g, '');
+        if (numeric) {
+            return this.noradIndex.get(numeric) || this.noradIndex.get(numeric.padStart(5, '0'));
+        }
+        return undefined;
+    }
+
+    resolveSatellite(noradId?: string, name?: string): SatelliteData | undefined {
+        const candidates = new Set<string>();
+
+        if (noradId) {
+            const raw = noradId.toString().trim();
+            if (raw) {
+                candidates.add(raw);
+                const numeric = raw.replace(/[^0-9]/g, '');
+                if (numeric) {
+                    candidates.add(numeric);
+                    candidates.add(numeric.padStart(5, '0'));
+                }
+            }
+        }
+
+        for (const candidate of candidates) {
+            const sat = this.noradIndex.get(candidate);
+            if (sat) {
+                return sat;
+            }
+        }
+
+        if (name) {
+            const normalized = this.normalizeName(name);
+            if (normalized) {
+                const byName = this.nameIndex.get(normalized);
+                if (byName) {
+                    return byName;
+                }
+
+                const fallback = this.metaRef.find((sat) => {
+                    const satNorm = this.normalizeName(sat.name);
+                    return satNorm.includes(normalized) || normalized.includes(satNorm);
+                });
+                if (fallback) {
+                    return fallback;
+                }
+            }
+        }
+
+        return undefined;
+    }
+
+    private normalizeName(value: string | undefined): string {
+        if (!value) return '';
+        return value.toLowerCase().replace(/[^a-z0-9]/g, '');
+    }
+
+    private notifyListeners(): void {
+        for (const listener of this.listeners) {
+            try {
+                listener();
+            } catch (error) {
+                console.error('SatelliteService listener error:', error);
+            }
+        }
     }
 
     private generateTLE1(formData: SatelliteFormData): string {

@@ -1,23 +1,22 @@
 .feature-menu {
     position: fixed;
-    bottom: 20px;
-    left: 20px;
+    top: 50px;
+    left: 12px;
     background: rgba(15, 15, 15, 0.95);
     border: 1px solid rgba(255, 255, 255, 0.15);
     border-radius: 12px;
     backdrop-filter: blur(10px);
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-    z-index: 1000;
-    transition: all 0.3s ease;
+    z-index: 1099;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     min-width: 280px;
     max-width: 400px;
+    transform-origin: top left;
 }
 
-.feature-menu.collapsed {
-    height: 60px;
-    width: 60px;
-    min-width: 60px;
-    max-width: 60px;
+
+.feature-menu.animating {
+    pointer-events: none;
 }
 
 .feature-menu.expanded {
@@ -28,61 +27,18 @@
     max-width: 320px;
 }
 
-.menu-toggle {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 16px;
-    cursor: pointer;
-    user-select: none;
-    transition: all 0.3s ease;
-    height: 60px;
-    width: 60px;
-    border-radius: 12px;
-}
-
-.menu-toggle:hover {
-    background: rgba(76, 175, 80, 0.1);
-    transform: scale(1.05);
-}
-
-.menu-icon {
-    display: flex;
-    flex-direction: column;
-    width: 20px;
-    height: 20px;
-    justify-content: center;
-}
-
-.hamburger-line {
-    width: 100%;
-    height: 2px;
-    background: #4CAF50;
-    margin: 2px 0;
-    transition: all 0.3s ease;
-    border-radius: 1px;
-}
-
-.feature-menu.expanded .hamburger-line:nth-child(1) {
-    transform: rotate(45deg) translate(5px, 5px);
-}
-
-.feature-menu.expanded .hamburger-line:nth-child(2) {
-    opacity: 0;
-}
-
-.feature-menu.expanded .hamburger-line:nth-child(3) {
-    transform: rotate(-45deg) translate(7px, -6px);
-}
-
-.menu-title {
-    display: none;
-}
-
 .menu-content {
     border-top: 1px solid rgba(255, 255, 255, 0.1);
     padding: 0;
     overflow: hidden;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.feature-menu.expanded .menu-content {
+    opacity: 1;
+    transform: translateY(0);
 }
 
 .menu-tabs {
@@ -128,10 +84,12 @@
     align-items: center;
     padding: 8px 16px;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     border-left: 3px solid transparent;
     margin: 2px 8px;
     border-radius: 6px;
+    position: relative;
+    overflow: hidden;
 }
 
 .feature-item:hover {
@@ -140,10 +98,39 @@
     transform: translateX(2px);
 }
 
+.feature-item:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.3);
+}
+
+.feature-item:active {
+    transform: translateX(4px);
+}
+
 .feature-item.selected {
     background: rgba(76, 175, 80, 0.15);
     border-left-color: #4CAF50;
     box-shadow: 0 2px 8px rgba(76, 175, 80, 0.2);
+}
+
+.feature-item::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 100%;
+    height: 100%;
+    background: radial-gradient(circle, rgba(76, 175, 80, 0.2) 0%, transparent 70%);
+    transform: translate(-50%, -50%) scale(0);
+    opacity: 0;
+    transition: transform 0.4s ease-out, opacity 0.3s ease-out;
+    pointer-events: none;
+}
+
+.feature-item:active::after {
+    transform: translate(-50%, -50%) scale(2);
+    opacity: 1;
+    transition: transform 0.2s ease-out, opacity 0.2s ease-out;
 }
 
 .feature-icon {
@@ -268,14 +255,7 @@
 @media (max-width: 768px) {
     .feature-menu {
         left: 10px;
-        bottom: 10px;
-    }
-
-    .feature-menu.collapsed {
-        width: 50px;
-        height: 50px;
-        min-width: 50px;
-        max-width: 50px;
+        top: 50px;
     }
 
     .feature-menu.expanded {
@@ -283,24 +263,5 @@
         min-width: 280px;
         max-width: 280px;
         max-height: 60vh;
-    }
-
-    .menu-toggle {
-        height: 50px;
-        width: 50px;
-        padding: 12px;
-    }
-
-    .feature-item {
-        padding: 6px 12px;
-        margin: 1px 6px;
-    }
-
-    .feature-name {
-        font-size: 12px;
-    }
-
-    .feature-description {
-        font-size: 10px;
     }
 }
