@@ -8,6 +8,7 @@ import { Footer } from './components/footer';
 import { Header } from './components/header';
 import type { FilterCriteria } from './components/header/FilterPanel';
 import { createResetViewHandler } from './components/header/ResetView';
+import { SelectedObjectPanel } from './components/selected/SelectedObjectPanel';
 import { SatelliteService, type SatelliteData } from './services/satelliteService';
 import { TooltipService } from './services/tooltipService';
 
@@ -39,6 +40,9 @@ export const ArcGlobe: React.FC = () => {
     const [showDebrisScanner, setShowDebrisScanner] = useState(false);
 
     const [filterPanelVisible, setFilterPanelVisible] = useState(false);
+    const [selectedSatellite, setSelectedSatellite] = useState<SatelliteData | null>(null);
+
+    const clearSelectedSatellite = () => setSelectedSatellite(null);
 
     const handleGlobalReset = createResetViewHandler({
         instancedApiRef,
@@ -50,7 +54,8 @@ export const ArcGlobe: React.FC = () => {
         setShowConstellationAnalysis,
         setShowDebrisScanner,
         setShowCreateSatellite,
-        setSelectedFeature
+        setSelectedFeature,
+        onSelectedSatelliteChange: clearSelectedSatellite
     });
 
     const handleConstellationSelect = (constellation: Constellation) => {
@@ -90,6 +95,7 @@ export const ArcGlobe: React.FC = () => {
                 instancedApiRef.current.setVisibleSatellites(ids, [1.0, 0.5, 0.0]);
                 instancedApiRef.current.setHighlightedSatellite(null);
                 console.log(`Highlighting collision satellites: ${collision.SAT1_NAME}${typeof sat2Id === 'number' ? ` and ${collision.SAT2_NAME}` : ''}`);
+                clearSelectedSatellite();
             } else {
                 console.warn('No matching satellites found for collision pair', collision.SAT1, collision.SAT2);
                 instancedApiRef.current.resetVisibility();
@@ -158,12 +164,15 @@ export const ArcGlobe: React.FC = () => {
         switch (feature) {
             case 'collision':
                 setShowCollisionAnalysis(true);
+                clearSelectedSatellite();
                 break;
             case 'constellation':
                 setShowConstellationAnalysis(true);
+                clearSelectedSatellite();
                 break;
             case 'create-satellite':
                 setShowCreateSatellite(true);
+                clearSelectedSatellite();
                 break;
             case 'new-launch':
                 // TODO: Implement new launch
@@ -175,6 +184,7 @@ export const ArcGlobe: React.FC = () => {
                 break;
             case 'debris-scanner':
                 setShowDebrisScanner(true);
+                clearSelectedSatellite();
                 break;
             default:
                 break;
@@ -193,6 +203,7 @@ export const ArcGlobe: React.FC = () => {
             instancedApiRef.current.resetVisibility();
             instancedApiRef.current.setHighlightedSatellite(null);
         }
+        clearSelectedSatellite();
     };
 
     const handleCloseCreateSatellite = () => {
@@ -397,6 +408,7 @@ export const ArcGlobe: React.FC = () => {
                                             tooltipService.hideTooltip();
                                             // Clear selection in renderer
                                             instancedApi.setSelectedId(-1);
+                                            clearSelectedSatellite();
                                         }
                                         return;
                                     }
@@ -412,11 +424,15 @@ export const ArcGlobe: React.FC = () => {
                                         tooltipService.hideTooltip();
                                         // Clear selection in renderer
                                         instancedApi.setSelectedId(-1);
+                                        clearSelectedSatellite();
                                     } else {
                                         // Clicked on different satellite - show orbit and info
                                         selectedIdRef.current = id;
                                         // Highlight selected satellite in renderer
                                         instancedApi.setSelectedId(id);
+
+                                        const satellite = satelliteService.getSatelliteById(id);
+                                        setSelectedSatellite(satellite ?? null);
 
                                         // Show satellite info tooltip
                                         const html = tooltipService.generateSatelliteTooltip(id, false);
@@ -722,6 +738,7 @@ export const ArcGlobe: React.FC = () => {
             selectedIdRef.current = null;
             setIsLoading(false);
             isLoadingRef.current = false;
+            clearSelectedSatellite();
         };
     }, []);
 
@@ -770,6 +787,7 @@ export const ArcGlobe: React.FC = () => {
                     <p>Filter by Country, NORAD, or Year (coming soon).</p>
                 </div>
             )}
+            <SelectedObjectPanel satellite={selectedSatellite} />
         </>
     );
 };

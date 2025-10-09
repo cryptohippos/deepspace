@@ -1,4 +1,5 @@
 import React, { type MutableRefObject, useCallback } from 'react';
+import type { SatelliteData } from '../../services/satelliteService';
 import type { TooltipService } from '../../services/tooltipService';
 
 interface ResetViewDependencies {
@@ -12,6 +13,7 @@ interface ResetViewDependencies {
     setShowDebrisScanner: (value: boolean) => void;
     setShowCreateSatellite: (value: boolean) => void;
     setSelectedFeature: (value: string | null) => void;
+    onSelectedSatelliteChange?: (satellite: SatelliteData | null) => void;
 }
 
 export const createResetViewHandler = ({
@@ -24,7 +26,8 @@ export const createResetViewHandler = ({
     setShowConstellationAnalysis,
     setShowDebrisScanner,
     setShowCreateSatellite,
-    setSelectedFeature
+    setSelectedFeature,
+    onSelectedSatelliteChange
 }: ResetViewDependencies): (() => void) => {
     return () => {
         const api = instancedApiRef.current;
@@ -47,6 +50,7 @@ export const createResetViewHandler = ({
         setShowDebrisScanner(false);
         setShowCreateSatellite(false);
         setSelectedFeature(null);
+        onSelectedSatelliteChange?.(null);
     };
 };
 
