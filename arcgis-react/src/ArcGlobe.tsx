@@ -496,24 +496,97 @@ export const ArcGlobe: React.FC = () => {
                         metaRef = (datasets.main || []).slice(0, MAX_SATS);
 
                         // Convert to SatelliteData format and initialize service
-                        const satelliteData: SatelliteData[] = metaRef.map((s: any, idx: number) => {
-                            // Extract NORAD ID from TLE line 1 (first 5 digits after the '1' and space)
-                            let noradId = 'N/A';
-                            if (s.tle1 && s.tle1.length > 7) {
-                                const noradMatch = s.tle1.match(/^1\s+(\d{5})/);
-                                if (noradMatch) {
-                                    noradId = noradMatch[1];
+                        const pickString = (...values: Array<string | number | null | undefined>) => {
+                            for (const value of values) {
+                                if (value === null || value === undefined) {
+                                    continue;
+                                }
+                                const str = String(value).trim();
+                                if (str && str.toLowerCase() !== 'null' && str.toLowerCase() !== 'undefined') {
+                                    return str;
                                 }
                             }
+                            return undefined;
+                        };
+
+                        const satelliteData: SatelliteData[] = metaRef.map((s: any, idx: number) => {
+                            const noradId = (() => {
+                                const direct = pickString(
+                                    s.norad,
+                                    s.NORAD,
+                                    s.objectId,
+                                    s.OBJECT_ID,
+                                    s.catalogNumber,
+                                    s.CATALOG_NUMBER,
+                                    s.SATCAT,
+                                    s.scc,
+                                    s.satcat,
+                                    s.SATCATNUM
+                                );
+                                if (direct) {
+                                    return direct;
+                                }
+                                if (s.tle1 && s.tle1.length > 7) {
+                                    const noradMatch = s.tle1.match(/^1\s+(\d{5})/);
+                                    if (noradMatch) {
+                                        return noradMatch[1];
+                                    }
+                                }
+                                return 'N/A';
+                            })();
+
+                            const name = pickString(
+                                s.name,
+                                s.object_name,
+                                s.OBJECT_NAME,
+                                s.payloadName,
+                                s.PAYLOAD,
+                                s.payload,
+                                s.PAYLOAD_NAME,
+                                s.payload_name,
+                                s.satname,
+                                s.SATNAME,
+                                s.sat_name,
+                                s.payloadId,
+                                s.PAYLOAD_ID
+                            ) || noradId || 'SAT';
+
+                            const country = pickString(
+                                s.country,
+                                s.countryCode,
+                                s.country_code,
+                                s.country_of_registry,
+                                s.owner,
+                                s.ORIGIN,
+                                s.origin,
+                                s.countryOwner,
+                                s.country_operator,
+                                s.operator_country,
+                                s.countryOfOperator,
+                                s.COUNTRY,
+                                s.Country,
+                                s.Nation,
+                                s.nation,
+                                s.operator_country_code
+                            ) || 'TBD';
+
+                            const launchDate = pickString(
+                                s.launchDate,
+                                s.launch_date,
+                                s.LaunchDate,
+                                s.LAUNCH_DATE,
+                                s.launch,
+                                s.DEP_DATE
+                            );
 
                             return {
-                                id: idx,
-                                name: s.name || 'SAT',
+                                id: typeof s.id === 'number' ? s.id : idx,
+                                name,
                                 tle1: s.tle1,
                                 tle2: s.tle2,
                                 norad: noradId,
-                                launchDate: s.launchDate || new Date().toISOString(),
-                                country: s.country || 'TBD',
+                                launchDate: launchDate || new Date().toISOString(),
+                                country,
                                 type: 1,
                                 source: s.source || 'Unknown',
                                 isUserCreated: false
@@ -568,7 +641,6 @@ export const ArcGlobe: React.FC = () => {
                                 if (data.type === 'log' && DEBUG) { console.log('[worker]', data.msg); return; }
                                 // Ignore PV for now; renderer expects lon/lat/h. Use 'positions' path below.
                                 if (data.type === 'positions' && data.positions) {
-                                    console.log('ArcGlobe: Received positions from worker');
                                     const arr = data.positions instanceof Float32Array ? data.positions : new Float32Array(data.positions as ArrayBuffer);
                                     if (useInstanced && instancedApi) {
                                         const count = Math.floor(arr.length / 3);
