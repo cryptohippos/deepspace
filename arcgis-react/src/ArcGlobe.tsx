@@ -108,6 +108,33 @@ export const ArcGlobe: React.FC = () => {
         try {
             const newSatellite = satelliteService.createSatellite(satelliteData);
             console.log('Satellite created successfully:', newSatellite);
+
+            trackGraphicsRef.current.forEach((graphic) => {
+                tracksLayerRef.current?.remove?.(graphic);
+            });
+            trackGraphicsRef.current.clear();
+
+            const api = instancedApiRef.current;
+            if (api) {
+                api.resetVisibility?.();
+                api.setVisibleSatellites?.([newSatellite.id], [0.95, 0.95, 1.0]);
+                api.setHighlightedSatellite?.(null);
+                api.setSelectedId?.(newSatellite.id);
+            }
+
+            selectedIdRef.current = newSatellite.id;
+            setSelectedSatellite(newSatellite);
+            tooltipService.hideTooltip();
+
+            if (typeof window !== 'undefined') {
+                window.setTimeout(() => {
+                    try {
+                        instancedApiRef.current?.requestRender?.();
+                    } catch (error) {
+                        console.warn('ArcGlobe: requestRender failed after satellite create', error);
+                    }
+                }, 0);
+            }
         } catch (error) {
             console.error('Error creating satellite:', error);
         }
@@ -236,10 +263,32 @@ export const ArcGlobe: React.FC = () => {
     };
 
     const handleShowUserCreated = () => {
-        console.log('Showing user-created satellites');
         const userCreated = satelliteService.getUserCreatedSatellites();
-        console.log('User-created satellites:', userCreated);
-        // TODO: Implement visual highlighting on the globe
+        if (!userCreated.length) {
+            console.log('No user-created satellites available');
+            return;
+        }
+
+        const ids = userCreated.map((sat) => sat.id);
+        const api = instancedApiRef.current;
+        if (!api) {
+            return;
+        }
+
+        trackGraphicsRef.current.forEach((graphic) => {
+            tracksLayerRef.current?.remove?.(graphic);
+        });
+        trackGraphicsRef.current.clear();
+
+        api.resetVisibility?.();
+        api.setVisibleSatellites?.(ids, [0.8, 0.95, 1.0]);
+        api.setHighlightedSatellite?.(null);
+
+        const latest = userCreated[userCreated.length - 1];
+        api.setSelectedId?.(latest.id);
+        selectedIdRef.current = latest.id;
+        setSelectedSatellite(latest);
+        tooltipService.hideTooltip();
     };
 
     const handleToggleFilters = (nextOpen: boolean) => {
