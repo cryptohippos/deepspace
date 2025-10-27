@@ -20,13 +20,12 @@ export interface CollisionEvent {
 
 interface CollisionAnalysisProps {
     isVisible: boolean;
-    onClose: () => void; // retained for compatibility but handled externally
     onCollisionSelect: (collision: CollisionEvent) => void;
+    onClose?: () => void;
 }
 
 export const CollisionAnalysis: React.FC<CollisionAnalysisProps> = ({
     isVisible,
-    onClose,
     onCollisionSelect
 }) => {
     const [collisions, setCollisions] = useState<CollisionEvent[]>([]);

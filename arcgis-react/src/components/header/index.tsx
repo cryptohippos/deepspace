@@ -83,7 +83,10 @@ export const Header: React.FC<HeaderProps> = ({
             {menuOpen && (
                 <FeatureMenu
                     isOpen={true}
-                    onFeatureSelect={onFeatureSelect}
+                    onFeatureSelect={(feature) => {
+                        onFeatureSelect(feature);
+                        setMenuOpen(false);
+                    }}
                     selectedFeature={selectedFeature}
                     onSearchSatellites={onSearchSatellites}
                     onShowUserCreated={onShowUserCreated}

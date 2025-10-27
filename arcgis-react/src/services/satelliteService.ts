@@ -86,6 +86,14 @@ export class SatelliteService {
         this.notifyListeners();
     }
 
+    getWorkerInstance(): Worker | null {
+        return this.worker;
+    }
+
+    /* Orbit plot helpers: the app currently maintains selection in ArcGlobe component state.
+       These helpers will be wired up once selection state becomes globally accessible.
+    */
+
     createSatellite(formData: SatelliteFormData): SatelliteData {
         // Convert form data to TLE format
         const tle1 = this.generateTLE1(formData);

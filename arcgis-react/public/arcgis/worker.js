@@ -183,6 +183,65 @@
         }
     }
 
+    function handleOrbitSample(request) {
+        const { ids = [], points = 120, mode = 'eci', requestId } = request || {};
+        if (!ids.length) {
+            self.postMessage({ type: 'orbitSample', requestId, mode, series: [] });
+            return;
+        }
+
+        const now = new Date();
+        const results = [];
+
+        for (const id of ids) {
+            const record = satRecords.find((sat) => sat.id === id);
+            if (!record) {
+                continue;
+            }
+
+            const satrec = record.satrec;
+            if (!satrec) {
+                continue;
+            }
+
+            const periodMinutes = Math.max(10, (2 * Math.PI) / (satrec.no || (2 * Math.PI / 1436.0))) * 1.0; // fallback to ~24h if no
+            const deltaMs = (periodMinutes * 60 * 1000) / points;
+            const pointsArray = [];
+
+            for (let i = 0; i < points; i++) {
+                const t = new Date(now.getTime() + i * deltaMs);
+                try {
+                    const pv = satellite.propagate(
+                        satrec,
+                        t.getUTCFullYear(),
+                        t.getUTCMonth() + 1,
+                        t.getUTCDate(),
+                        t.getUTCHours(),
+                        t.getUTCMinutes(),
+                        t.getUTCSeconds()
+                    );
+                    if (!pv || !pv.position) {
+                        continue;
+                    }
+                    let vector;
+                    if (mode === 'ecf') {
+                        const ecef = satellite.eciToEcf(pv.position, satellite.gstime(t));
+                        vector = [ecef.x * 1000, ecef.y * 1000, ecef.z * 1000];
+                    } else {
+                        vector = [pv.position.x * 1000, pv.position.y * 1000, pv.position.z * 1000];
+                    }
+                    pointsArray.push([...vector, t.getTime()]);
+                } catch (e) {
+                    if (DEBUG) try { self.postMessage({ type: 'log', msg: `[worker] orbit sample error for ${record.id}: ${e.message}` }); } catch { }
+                }
+            }
+
+            results.push({ id: record.id, name: record.name, points: pointsArray });
+        }
+
+        self.postMessage({ type: 'orbitSample', requestId, mode, series: results });
+    }
+
     function handleTrack(satId) {
         const rec = satRecords.find((s) => s.id === satId);
         if (!rec) { self.postMessage({ type: 'track', id: satId, positions: null }); return; }
@@ -253,6 +312,9 @@
             else if (data.type === 'addSatellite') {
                 if (DEBUG) try { self.postMessage({ type: 'log', msg: `[worker] adding satellite: ${JSON.stringify(data.satellite)}` }); } catch { }
                 handleAddSatellite(data.satellite);
+            }
+            else if (data.type === 'orbitSample') {
+                handleOrbitSample(data);
             }
             else if (data.type === 'test') {
                 if (DEBUG) try { self.postMessage({ type: 'log', msg: `[worker] received test message: ${data.message}` }); } catch { }

@@ -4,11 +4,13 @@ import { FeatureHost, type ActiveFeature } from './components/features';
 import { type CollisionEvent } from './components/features/CollisionAnalysis';
 import { type Constellation } from './components/features/ConstellationAnalysis';
 import { type SatelliteFormData } from './components/features/CreateSatellite';
+import type { OrbitPlotMode, OrbitPlotSeries } from './components/features/orbit-plots/types';
 import { Footer } from './components/footer';
 import { Header } from './components/header';
 import type { FilterCriteria } from './components/header/FilterPanel';
 import { createResetViewHandler } from './components/header/ResetView';
 import { SelectedObjectPanel } from './components/selected/SelectedObjectPanel';
+import { orbitPlotService } from './services/orbitPlotService';
 import { SatelliteService, type SatelliteData } from './services/satelliteService';
 import { TooltipService } from './services/tooltipService';
 
@@ -41,8 +43,25 @@ export const ArcGlobe: React.FC = () => {
 
     const [filterPanelVisible, setFilterPanelVisible] = useState(false);
     const [selectedSatellite, setSelectedSatellite] = useState<SatelliteData | null>(null);
+    const workerRef = useRef<Worker | null>(null);
+    const [orbitPlotState, setOrbitPlotState] = useState<{
+        mode: OrbitPlotMode;
+        satellites: number[];
+        title: string;
+        series: OrbitPlotSeries[] | null;
+        isLoading: boolean;
+        error: string | null;
+        requestId: number | null;
+    } | null>(null);
+    const orbitPlotRequestRef = useRef<number | null>(null);
 
     const clearSelectedSatellite = () => setSelectedSatellite(null);
+
+    const handleCloseOrbitPlot = () => {
+        setOrbitPlotState(null);
+        setSelectedFeature(null);
+        orbitPlotRequestRef.current = null;
+    };
 
     const handleGlobalReset = createResetViewHandler({
         instancedApiRef,
@@ -175,13 +194,29 @@ export const ArcGlobe: React.FC = () => {
                 ? { name: 'constellation', props: { onClose: () => handleCloseConstellationAnalysis(), onConstellationSelect: handleConstellationSelect, onConstellationHighlight: handleConstellationHighlight } }
                 : showDebrisScanner
                     ? { name: 'debris-scanner', props: { onClose: () => handleCloseDebrisScanner(), getInstancedApi: () => instancedApiRef.current, satelliteService } }
-                    : null;
+                    : orbitPlotState
+                        ? {
+                            name: 'orbit-plot',
+                            props: {
+                                onClose: handleCloseOrbitPlot,
+                                mode: orbitPlotState.mode,
+                                worker: workerRef.current,
+                                satelliteIds: orbitPlotState.satellites,
+                                title: orbitPlotState.title,
+                                data: orbitPlotState.series,
+                                loading: orbitPlotState.isLoading,
+                                error: orbitPlotState.error
+                            }
+                        }
+                        : null;
 
     const activeFeatureTitle = activeFeature ? (
-        activeFeature.name === 'collision' ? 'Collision Analysis' :
-            activeFeature.name === 'create-satellite' ? 'Create Satellite' :
-                activeFeature.name === 'constellation' ? 'Constellation Analysis' :
-                    activeFeature.name === 'debris-scanner' ? 'Debris Scanner' : null
+        activeFeature.name === 'collision' ? 'Collision Analysis'
+            : activeFeature.name === 'create-satellite' ? 'Create Satellite'
+                : activeFeature.name === 'constellation' ? 'Constellation Analysis'
+                    : activeFeature.name === 'debris-scanner' ? 'Debris Scanner'
+                        : activeFeature.name === 'orbit-plot' ? activeFeature.props.title
+                            : null
     ) : null;
 
     // Feature handlers
@@ -212,6 +247,12 @@ export const ArcGlobe: React.FC = () => {
             case 'debris-scanner':
                 setShowDebrisScanner(true);
                 clearSelectedSatellite();
+                break;
+            case 'eci-plot':
+                handleOpenOrbitPlot('eci');
+                break;
+            case 'ecf-plot':
+                handleOpenOrbitPlot('ecf');
                 break;
             default:
                 break;
@@ -343,7 +384,6 @@ export const ArcGlobe: React.FC = () => {
         let lastPickTs = 0;
         const HOVER_MIN_INTERVAL_MS = 120;
         const isFinePointer = typeof window !== 'undefined' && matchMedia('(pointer:fine)').matches;
-        let cancelled = false;
         let expectedSatelliteCount = 0;
 
         isLoadingRef.current = true;
@@ -663,6 +703,7 @@ export const ArcGlobe: React.FC = () => {
                         // Use classic worker served from public to avoid bundler issues
                         try {
                             worker = new Worker('/arcgis/worker.js');
+                            workerRef.current = worker;
                             console.log('ArcGlobe: Worker created successfully');
 
                             // Add error handling for worker
@@ -775,7 +816,6 @@ export const ArcGlobe: React.FC = () => {
         boot();
 
         return () => {
-            cancelled = true;
             try { (view as any)?.destroy?.(); } catch { }
             try { worker?.terminate?.(); } catch { }
             try { tooltipService.dispose(); } catch { }
@@ -790,6 +830,66 @@ export const ArcGlobe: React.FC = () => {
             clearSelectedSatellite();
         };
     }, []);
+
+    useEffect(() => (
+        orbitPlotService.subscribe((event) => {
+            if (orbitPlotRequestRef.current !== event.requestId) {
+                return;
+            }
+            setOrbitPlotState((prev) => {
+                if (!prev || prev.mode !== event.mode || prev.requestId !== event.requestId) {
+                    return prev;
+                }
+                return {
+                    ...prev,
+                    series: event.series,
+                    isLoading: false,
+                    error: event.series.length ? null : 'No samples returned for this orbit.'
+                };
+            });
+        })
+    ), []);
+
+    const handleOpenOrbitPlot = (mode: OrbitPlotMode) => {
+        const selectedIds = selectedIdRef.current !== null
+            ? [selectedIdRef.current]
+            : selectedSatellite?.id !== undefined
+                ? [selectedSatellite.id]
+                : [];
+
+        const title = mode === 'eci' ? 'ECI Orbit Plot' : 'ECF Orbit Plot';
+
+        if (!selectedIds.length) {
+            setOrbitPlotState({
+                mode,
+                satellites: [],
+                title,
+                series: null,
+                isLoading: false,
+                error: 'Select a satellite to plot its orbit.',
+                requestId: null
+            });
+            setSelectedFeature(mode === 'eci' ? 'eci-plot' : 'ecf-plot');
+            return;
+        }
+
+        const requestId = (orbitPlotRequestRef.current = orbitPlotService.requestOrbitSamples(mode, selectedIds));
+
+        setOrbitPlotState({
+            mode,
+            satellites: selectedIds,
+            title,
+            series: null,
+            isLoading: true,
+            error: null,
+            requestId
+        });
+        setShowCollisionAnalysis(false);
+        setShowConstellationAnalysis(false);
+        setShowDebrisScanner(false);
+        setShowCreateSatellite(false);
+        setSelectedFeature(mode === 'eci' ? 'eci-plot' : 'ecf-plot');
+    };
 
     return (
         <>
@@ -825,6 +925,7 @@ export const ArcGlobe: React.FC = () => {
                     setShowCreateSatellite(false);
                     setShowConstellationAnalysis(false);
                     setShowDebrisScanner(false);
+                    setOrbitPlotState(null);
                     setSelectedFeature(null);
                 }}
             >

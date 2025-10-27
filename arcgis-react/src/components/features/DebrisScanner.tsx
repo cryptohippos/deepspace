@@ -50,10 +50,6 @@ function vectorLength(v: Vector3): number {
     return Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
 }
 
-function dot(a: Vector3, b: Vector3): number {
-    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-}
-
 function computeRelativeVelocity(v1: Vector3, v2: Vector3): number {
     return vectorLength(subtractVectors(v1, v2));
 }

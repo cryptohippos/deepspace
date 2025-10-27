@@ -166,6 +166,7 @@ const guessSatelliteImage = (satellite: SatelliteData | null): string => {
 export const SelectedObjectPanel: React.FC<SelectedObjectPanelProps> = ({ satellite }) => {
     const [hasError, setHasError] = useState(false);
     const [hasLoaded, setHasLoaded] = useState(false);
+    const [isCollapsed, setIsCollapsed] = useState(false);
     const imageSrc = useMemo(() => (hasError ? FALLBACK_IMAGE : guessSatelliteImage(satellite)), [hasError, satellite]);
     const attributes = useMemo(() => buildAttributes(satellite), [satellite]);
 
@@ -173,33 +174,42 @@ export const SelectedObjectPanel: React.FC<SelectedObjectPanelProps> = ({ satell
         return null;
     }
 
+    const toggleCollapse = () => {
+        setIsCollapsed((prev) => !prev);
+    };
+
     return (
-        <div className="selected-object-panel">
+        <div className={`selected-object-panel${isCollapsed ? ' collapsed' : ''}`}>
             <div className="selected-object-header">
                 <span className="selected-object-title">{satellite.name}</span>
+                <button className="selected-object-toggle" onClick={toggleCollapse} type="button" aria-label={isCollapsed ? 'Expand details' : 'Collapse details'}>
+                    {isCollapsed ? 'Expand' : 'Collapse'}
+                </button>
             </div>
-            <div className="selected-object-body">
-                <div className={`selected-object-image-wrapper${hasLoaded ? ' is-visible' : ''}`}>
-                    <img
-                        className="selected-object-image"
-                        src={imageSrc}
-                        alt={satellite.name}
-                        onError={() => {
-                            setHasError(true);
-                            setHasLoaded(false);
-                        }}
-                        onLoad={() => setHasLoaded(true)}
-                    />
+            {!isCollapsed && (
+                <div className="selected-object-body">
+                    <div className={`selected-object-image-wrapper${hasLoaded ? ' is-visible' : ''}`}>
+                        <img
+                            className="selected-object-image"
+                            src={imageSrc}
+                            alt={satellite.name}
+                            onError={() => {
+                                setHasError(true);
+                                setHasLoaded(false);
+                            }}
+                            onLoad={() => setHasLoaded(true)}
+                        />
+                    </div>
+                    <dl className="selected-object-attributes">
+                        {attributes.map(({ label, value }) => (
+                            <div key={label} className="selected-object-attribute">
+                                <dt>{label}</dt>
+                                <dd>{value}</dd>
+                            </div>
+                        ))}
+                    </dl>
                 </div>
-                <dl className="selected-object-attributes">
-                    {attributes.map(({ label, value }) => (
-                        <div key={label} className="selected-object-attribute">
-                            <dt>{label}</dt>
-                            <dd>{value}</dd>
-                        </div>
-                    ))}
-                </dl>
-            </div>
+            )}
         </div>
     );
 };
