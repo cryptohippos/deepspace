@@ -103,9 +103,9 @@ export const OrbitPlot: React.FC<OrbitPlotProps> = ({
                     >
                         {isCollapsed ? 'Expand' : 'Collapse'}
                     </button>
-                <button className="orbit-plot-close" onClick={onClose} type="button" aria-label="Close Orbit Plot">
-                    ✕
-                </button>
+                    <button className="orbit-plot-close" onClick={onClose} type="button" aria-label="Close Orbit Plot">
+                        ✕
+                    </button>
                 </div>
             </div>
             <div className="orbit-plot-body">
