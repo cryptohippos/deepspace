@@ -32,7 +32,7 @@ export class SatelliteService {
     private static instance: SatelliteService;
     private metaRef: SatelliteData[] = [];
     private worker: Worker | null = null;
-    private nextUserSatelliteId = 30000;
+    private maxAssignedIndex = -1;
     private noradIndex = new Map<string, SatelliteData>();
     private nameIndex = new Map<string, SatelliteData>();
     private listeners: Array<() => void> = [];
@@ -71,13 +71,28 @@ export class SatelliteService {
             }
         };
 
-        for (const sat of metadata) {
+        for (let i = 0; i < metadata.length; i++) {
+            const sat = metadata[i];
             addNoradVariants(sat.norad, sat);
             addNameVariant(sat.name, sat);
         }
+        this.maxAssignedIndex = metadata.reduce((max, sat) => {
+            if (typeof sat.id === 'number' && sat.id > max) {
+                return sat.id;
+            }
+            return max;
+        }, -1);
         console.log('SatelliteService: Initialized with', metadata.length, 'satellites and worker:', !!worker);
         this.notifyListeners();
     }
+
+    getWorkerInstance(): Worker | null {
+        return this.worker;
+    }
+
+    /* Orbit plot helpers: the app currently maintains selection in ArcGlobe component state.
+       These helpers will be wired up once selection state becomes globally accessible.
+    */
 
     createSatellite(formData: SatelliteFormData): SatelliteData {
         // Convert form data to TLE format
@@ -85,8 +100,10 @@ export class SatelliteService {
         const tle2 = this.generateTLE2(formData);
 
         // Create satellite metadata
+        this.maxAssignedIndex += 1;
+        const newId = this.maxAssignedIndex;
         const newSatellite: SatelliteData = {
-            id: this.nextUserSatelliteId++,
+            id: newId,
             name: formData.name,
             tle1: tle1,
             tle2: tle2,

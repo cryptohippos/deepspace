@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { FeatureMenu } from './FeatureMenu.tsx';
 import { FilterPanel, type FilterCriteria } from './FilterPanel';
+import { ResetView } from './ResetView';
 
 interface HeaderProps {
     onFeatureSelect: (feature: string) => void;
@@ -11,6 +12,8 @@ interface HeaderProps {
     isFilterOpen: boolean;
     onToggleFilters: (nextOpen: boolean) => void;
     onApplyFilters: (criteria: FilterCriteria) => void;
+    onResetView: () => void;
+    resetDisabled?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -21,7 +24,9 @@ export const Header: React.FC<HeaderProps> = ({
     onTestConstellations,
     isFilterOpen,
     onToggleFilters,
-    onApplyFilters
+    onApplyFilters,
+    onResetView,
+    resetDisabled
 }) => {
     const [menuOpen, setMenuOpen] = useState(false);
 
@@ -55,6 +60,7 @@ export const Header: React.FC<HeaderProps> = ({
                 {/* Right: ArcGIS controls slot + Filters */}
                 <div className="header-right">
                     <div id="arcgis-controls-right" className="header-controls-slot" />
+                    <ResetView onReset={onResetView} disabled={resetDisabled} />
                     <button
                         className={`header-filter-button${isFilterOpen ? ' active' : ''}`}
                         type="button"
@@ -77,7 +83,10 @@ export const Header: React.FC<HeaderProps> = ({
             {menuOpen && (
                 <FeatureMenu
                     isOpen={true}
-                    onFeatureSelect={onFeatureSelect}
+                    onFeatureSelect={(feature) => {
+                        onFeatureSelect(feature);
+                        setMenuOpen(false);
+                    }}
                     selectedFeature={selectedFeature}
                     onSearchSatellites={onSearchSatellites}
                     onShowUserCreated={onShowUserCreated}

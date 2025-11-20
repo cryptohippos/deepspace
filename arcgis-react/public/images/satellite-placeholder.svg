@@ -1,0 +1,32 @@
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg" fill="none">
+  <rect width="256" height="256" rx="32" fill="url(#bg)" />
+  <g filter="url(#shadow)">
+    <path d="M74 128c0-29.823 24.177-54 54-54s54 24.177 54 54-24.177 54-54 54-54-24.177-54-54z" fill="url(#body)"/>
+    <path d="M82 128c0-25.405 20.595-46 46-46s46 20.595 46 46-20.595 46-46 46-46-20.595-46-46z" fill="url(#core)"/>
+    <circle cx="128" cy="128" r="22" fill="#0b1f33" opacity="0.65"/>
+    <circle cx="128" cy="128" r="10" fill="#7ce7ff"/>
+  </g>
+  <g opacity="0.75" stroke="#7ce7ff" stroke-width="6" stroke-linecap="round">
+    <path d="M34 92l58 26M34 164l58-26M222 92l-58 26M222 164l-58-26" />
+  </g>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="256" y2="256" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0f1f33"/>
+      <stop offset="1" stop-color="#142b45"/>
+    </linearGradient>
+    <linearGradient id="body" x1="74" y1="74" x2="182" y2="182" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1e3a5c"/>
+      <stop offset="1" stop-color="#0a1b2d"/>
+    </linearGradient>
+    <radialGradient id="core" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(128 108) rotate(90) scale(66)">
+      <stop stop-color="#1b4e76"/>
+      <stop offset="1" stop-color="#0a1d30"/>
+    </radialGradient>
+    <filter id="shadow" x="40" y="40" width="176" height="176" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feOffset dy="6" />
+      <feGaussianBlur stdDeviation="12" result="blur" />
+      <feComposite in="blur" in2="SourceAlpha" operator="out" />
+      <feColorMatrix values="0 0 0 0 0  0 0 0 0 0.243  0 0 0 0 0.427  0 0 0 0.35 0" />
+    </filter>
+  </defs>
+</svg>

@@ -4,9 +4,13 @@ import { FeatureHost, type ActiveFeature } from './components/features';
 import { type CollisionEvent } from './components/features/CollisionAnalysis';
 import { type Constellation } from './components/features/ConstellationAnalysis';
 import { type SatelliteFormData } from './components/features/CreateSatellite';
+import type { OrbitPlotMode, OrbitPlotSeries } from './components/features/orbit-plots/types';
 import { Footer } from './components/footer';
 import { Header } from './components/header';
 import type { FilterCriteria } from './components/header/FilterPanel';
+import { createResetViewHandler } from './components/header/ResetView';
+import { SelectedObjectPanel } from './components/selected/SelectedObjectPanel';
+import { orbitPlotService } from './services/orbitPlotService';
 import { SatelliteService, type SatelliteData } from './services/satelliteService';
 import { TooltipService } from './services/tooltipService';
 
@@ -22,6 +26,9 @@ declare global {
 export const ArcGlobe: React.FC = () => {
     const divRef = useRef<HTMLDivElement | null>(null);
     const instancedApiRef = useRef<any>(null);
+    const tracksLayerRef = useRef<__esri.GraphicsLayer | null>(null);
+    const trackGraphicsRef = useRef<Map<number, __esri.Graphic>>(new Map());
+    const selectedIdRef = useRef<number | null>(null);
     const isLoadingRef = useRef(true);
     const [isLoading, setIsLoading] = useState(true);
     const satelliteService = SatelliteService.getInstance();
@@ -35,22 +42,40 @@ export const ArcGlobe: React.FC = () => {
     const [showDebrisScanner, setShowDebrisScanner] = useState(false);
 
     const [filterPanelVisible, setFilterPanelVisible] = useState(false);
+    const [selectedSatellite, setSelectedSatellite] = useState<SatelliteData | null>(null);
+    const workerRef = useRef<Worker | null>(null);
+    const [orbitPlotState, setOrbitPlotState] = useState<{
+        mode: OrbitPlotMode;
+        satellites: number[];
+        title: string;
+        series: OrbitPlotSeries[] | null;
+        isLoading: boolean;
+        error: string | null;
+        requestId: number | null;
+    } | null>(null);
+    const orbitPlotRequestRef = useRef<number | null>(null);
 
-    const handleGlobalReset = () => {
-        const api = instancedApiRef.current;
-        if (api) {
-            api.resetVisibility?.();
-            api.setHighlightedSatellite?.(null, undefined, false);
-            api.setSelectedId?.(-1);
-        }
-        tooltipService.hideTooltip();
+    const clearSelectedSatellite = () => setSelectedSatellite(null);
 
-        setShowCollisionAnalysis(false);
-        setShowConstellationAnalysis(false);
-        setShowDebrisScanner(false);
-        setShowCreateSatellite(false);
+    const handleCloseOrbitPlot = () => {
+        setOrbitPlotState(null);
         setSelectedFeature(null);
+        orbitPlotRequestRef.current = null;
     };
+
+    const handleGlobalReset = createResetViewHandler({
+        instancedApiRef,
+        tooltipService,
+        tracksLayerRef,
+        trackGraphicsRef,
+        selectedIdRef,
+        setShowCollisionAnalysis,
+        setShowConstellationAnalysis,
+        setShowDebrisScanner,
+        setShowCreateSatellite,
+        setSelectedFeature,
+        onSelectedSatelliteChange: clearSelectedSatellite
+    });
 
     const handleConstellationSelect = (constellation: Constellation) => {
         console.log('Constellation selected:', constellation);
@@ -89,6 +114,7 @@ export const ArcGlobe: React.FC = () => {
                 instancedApiRef.current.setVisibleSatellites(ids, [1.0, 0.5, 0.0]);
                 instancedApiRef.current.setHighlightedSatellite(null);
                 console.log(`Highlighting collision satellites: ${collision.SAT1_NAME}${typeof sat2Id === 'number' ? ` and ${collision.SAT2_NAME}` : ''}`);
+                clearSelectedSatellite();
             } else {
                 console.warn('No matching satellites found for collision pair', collision.SAT1, collision.SAT2);
                 instancedApiRef.current.resetVisibility();
@@ -101,6 +127,33 @@ export const ArcGlobe: React.FC = () => {
         try {
             const newSatellite = satelliteService.createSatellite(satelliteData);
             console.log('Satellite created successfully:', newSatellite);
+
+            trackGraphicsRef.current.forEach((graphic) => {
+                tracksLayerRef.current?.remove?.(graphic);
+            });
+            trackGraphicsRef.current.clear();
+
+            const api = instancedApiRef.current;
+            if (api) {
+                api.resetVisibility?.();
+                api.setVisibleSatellites?.([newSatellite.id], [0.95, 0.95, 1.0]);
+                api.setHighlightedSatellite?.(null);
+                api.setSelectedId?.(newSatellite.id);
+            }
+
+            selectedIdRef.current = newSatellite.id;
+            setSelectedSatellite(newSatellite);
+            tooltipService.hideTooltip();
+
+            if (typeof window !== 'undefined') {
+                window.setTimeout(() => {
+                    try {
+                        instancedApiRef.current?.requestRender?.();
+                    } catch (error) {
+                        console.warn('ArcGlobe: requestRender failed after satellite create', error);
+                    }
+                }, 0);
+            }
         } catch (error) {
             console.error('Error creating satellite:', error);
         }
@@ -141,13 +194,29 @@ export const ArcGlobe: React.FC = () => {
                 ? { name: 'constellation', props: { onClose: () => handleCloseConstellationAnalysis(), onConstellationSelect: handleConstellationSelect, onConstellationHighlight: handleConstellationHighlight } }
                 : showDebrisScanner
                     ? { name: 'debris-scanner', props: { onClose: () => handleCloseDebrisScanner(), getInstancedApi: () => instancedApiRef.current, satelliteService } }
-                    : null;
+                    : orbitPlotState
+                        ? {
+                            name: 'orbit-plot',
+                            props: {
+                                onClose: handleCloseOrbitPlot,
+                                mode: orbitPlotState.mode,
+                                worker: workerRef.current,
+                                satelliteIds: orbitPlotState.satellites,
+                                title: orbitPlotState.title,
+                                data: orbitPlotState.series,
+                                loading: orbitPlotState.isLoading,
+                                error: orbitPlotState.error
+                            }
+                        }
+                        : null;
 
     const activeFeatureTitle = activeFeature ? (
-        activeFeature.name === 'collision' ? 'Collision Analysis' :
-            activeFeature.name === 'create-satellite' ? 'Create Satellite' :
-                activeFeature.name === 'constellation' ? 'Constellation Analysis' :
-                    activeFeature.name === 'debris-scanner' ? 'Debris Scanner' : null
+        activeFeature.name === 'collision' ? 'Collision Analysis'
+            : activeFeature.name === 'create-satellite' ? 'Create Satellite'
+                : activeFeature.name === 'constellation' ? 'Constellation Analysis'
+                    : activeFeature.name === 'debris-scanner' ? 'Debris Scanner'
+                        : activeFeature.name === 'orbit-plot' ? activeFeature.props.title
+                            : null
     ) : null;
 
     // Feature handlers
@@ -157,12 +226,15 @@ export const ArcGlobe: React.FC = () => {
         switch (feature) {
             case 'collision':
                 setShowCollisionAnalysis(true);
+                clearSelectedSatellite();
                 break;
             case 'constellation':
                 setShowConstellationAnalysis(true);
+                clearSelectedSatellite();
                 break;
             case 'create-satellite':
                 setShowCreateSatellite(true);
+                clearSelectedSatellite();
                 break;
             case 'new-launch':
                 // TODO: Implement new launch
@@ -174,6 +246,13 @@ export const ArcGlobe: React.FC = () => {
                 break;
             case 'debris-scanner':
                 setShowDebrisScanner(true);
+                clearSelectedSatellite();
+                break;
+            case 'eci-plot':
+                handleOpenOrbitPlot('eci');
+                break;
+            case 'ecf-plot':
+                handleOpenOrbitPlot('ecf');
                 break;
             default:
                 break;
@@ -192,6 +271,7 @@ export const ArcGlobe: React.FC = () => {
             instancedApiRef.current.resetVisibility();
             instancedApiRef.current.setHighlightedSatellite(null);
         }
+        clearSelectedSatellite();
     };
 
     const handleCloseCreateSatellite = () => {
@@ -224,10 +304,32 @@ export const ArcGlobe: React.FC = () => {
     };
 
     const handleShowUserCreated = () => {
-        console.log('Showing user-created satellites');
         const userCreated = satelliteService.getUserCreatedSatellites();
-        console.log('User-created satellites:', userCreated);
-        // TODO: Implement visual highlighting on the globe
+        if (!userCreated.length) {
+            console.log('No user-created satellites available');
+            return;
+        }
+
+        const ids = userCreated.map((sat) => sat.id);
+        const api = instancedApiRef.current;
+        if (!api) {
+            return;
+        }
+
+        trackGraphicsRef.current.forEach((graphic) => {
+            tracksLayerRef.current?.remove?.(graphic);
+        });
+        trackGraphicsRef.current.clear();
+
+        api.resetVisibility?.();
+        api.setVisibleSatellites?.(ids, [0.8, 0.95, 1.0]);
+        api.setHighlightedSatellite?.(null);
+
+        const latest = userCreated[userCreated.length - 1];
+        api.setSelectedId?.(latest.id);
+        selectedIdRef.current = latest.id;
+        setSelectedSatellite(latest);
+        tooltipService.hideTooltip();
     };
 
     const handleToggleFilters = (nextOpen: boolean) => {
@@ -270,11 +372,10 @@ export const ArcGlobe: React.FC = () => {
         let view: any;
         let worker: Worker | null = null;
         let tracksLayer: any;
+        let metaRef: any[] = [];
         const useInstanced = true;
         const DEBUG = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('debug') === '1';
         let instancedApi: any = null;
-        let selectedId: number | null = null;
-        let metaRef: any[] = [];
         // Hover picking throttling and drag gating
         let isDragging = false;
         let lastHoverId: number = -2;
@@ -283,7 +384,6 @@ export const ArcGlobe: React.FC = () => {
         let lastPickTs = 0;
         const HOVER_MIN_INTERVAL_MS = 120;
         const isFinePointer = typeof window !== 'undefined' && matchMedia('(pointer:fine)').matches;
-        let cancelled = false;
         let expectedSatelliteCount = 0;
 
         isLoadingRef.current = true;
@@ -324,9 +424,18 @@ export const ArcGlobe: React.FC = () => {
                     const id = instancedApi!.pick(lastMoveX, lastMoveY);
                     if (id !== lastHoverId) {
                         lastHoverId = id;
-                        if (id >= 0 && id !== selectedId) {
-                            const html = tooltipService.generateSatelliteTooltip(id, true);
-                            if (html) tooltipService.showTooltip(lastMoveX, lastMoveY, html);
+                        if (id >= 0) {
+                            const isSameAsSelected = id === selectedIdRef.current;
+                            if (!isSameAsSelected) {
+                                const html = tooltipService.generateSatelliteTooltip(id, true);
+                                if (html) {
+                                    tooltipService.showTooltip(lastMoveX, lastMoveY, html);
+                                } else {
+                                    tooltipService.hideTooltip();
+                                }
+                            } else {
+                                tooltipService.hideTooltip();
+                            }
                         } else {
                             tooltipService.hideTooltip();
                         }
@@ -353,6 +462,7 @@ export const ArcGlobe: React.FC = () => {
 
             tracksLayer = new GraphicsLayer();
             map.add(tracksLayer);
+            tracksLayerRef.current = tracksLayer;
 
             // If instanced, attach external renderer
             if (useInstanced) {
@@ -375,28 +485,43 @@ export const ArcGlobe: React.FC = () => {
                                     const id = instancedApi.pick(evt.x, evt.y);
                                     if (id < 0) {
                                         // Clicked on empty space - clear selection
-                                        if (selectedId !== null) {
-                                            tracksLayer.removeAll();
-                                            selectedId = null;
+                                        if (selectedIdRef.current !== null) {
+                                            if (trackGraphicsRef.current.has(selectedIdRef.current)) {
+                                                const graphic = trackGraphicsRef.current.get(selectedIdRef.current);
+                                                if (graphic) {
+                                                    tracksLayerRef.current?.remove(graphic);
+                                                }
+                                                trackGraphicsRef.current.delete(selectedIdRef.current);
+                                            }
+                                            selectedIdRef.current = null;
                                             tooltipService.hideTooltip();
                                             // Clear selection in renderer
                                             instancedApi.setSelectedId(-1);
+                                            clearSelectedSatellite();
                                         }
                                         return;
                                     }
 
-                                    if (id === selectedId) {
+                                    if (id === selectedIdRef.current) {
                                         // Clicked on same satellite - toggle off
-                                        tracksLayer.removeAll();
-                                        selectedId = null;
+                                        const graphic = trackGraphicsRef.current.get(id);
+                                        if (graphic) {
+                                            tracksLayerRef.current?.remove(graphic);
+                                            trackGraphicsRef.current.delete(id);
+                                        }
+                                        selectedIdRef.current = null;
                                         tooltipService.hideTooltip();
                                         // Clear selection in renderer
                                         instancedApi.setSelectedId(-1);
+                                        clearSelectedSatellite();
                                     } else {
                                         // Clicked on different satellite - show orbit and info
-                                        selectedId = id;
+                                        selectedIdRef.current = id;
                                         // Highlight selected satellite in renderer
                                         instancedApi.setSelectedId(id);
+
+                                        const satellite = satelliteService.getSatelliteById(id);
+                                        setSelectedSatellite(satellite ?? null);
 
                                         // Show satellite info tooltip
                                         const html = tooltipService.generateSatelliteTooltip(id, false);
@@ -476,24 +601,97 @@ export const ArcGlobe: React.FC = () => {
                         metaRef = (datasets.main || []).slice(0, MAX_SATS);
 
                         // Convert to SatelliteData format and initialize service
-                        const satelliteData: SatelliteData[] = metaRef.map((s: any, idx: number) => {
-                            // Extract NORAD ID from TLE line 1 (first 5 digits after the '1' and space)
-                            let noradId = 'N/A';
-                            if (s.tle1 && s.tle1.length > 7) {
-                                const noradMatch = s.tle1.match(/^1\s+(\d{5})/);
-                                if (noradMatch) {
-                                    noradId = noradMatch[1];
+                        const pickString = (...values: Array<string | number | null | undefined>) => {
+                            for (const value of values) {
+                                if (value === null || value === undefined) {
+                                    continue;
+                                }
+                                const str = String(value).trim();
+                                if (str && str.toLowerCase() !== 'null' && str.toLowerCase() !== 'undefined') {
+                                    return str;
                                 }
                             }
+                            return undefined;
+                        };
+
+                        const satelliteData: SatelliteData[] = metaRef.map((s: any, idx: number) => {
+                            const noradId = (() => {
+                                const direct = pickString(
+                                    s.norad,
+                                    s.NORAD,
+                                    s.objectId,
+                                    s.OBJECT_ID,
+                                    s.catalogNumber,
+                                    s.CATALOG_NUMBER,
+                                    s.SATCAT,
+                                    s.scc,
+                                    s.satcat,
+                                    s.SATCATNUM
+                                );
+                                if (direct) {
+                                    return direct;
+                                }
+                                if (s.tle1 && s.tle1.length > 7) {
+                                    const noradMatch = s.tle1.match(/^1\s+(\d{5})/);
+                                    if (noradMatch) {
+                                        return noradMatch[1];
+                                    }
+                                }
+                                return 'N/A';
+                            })();
+
+                            const name = pickString(
+                                s.name,
+                                s.object_name,
+                                s.OBJECT_NAME,
+                                s.payloadName,
+                                s.PAYLOAD,
+                                s.payload,
+                                s.PAYLOAD_NAME,
+                                s.payload_name,
+                                s.satname,
+                                s.SATNAME,
+                                s.sat_name,
+                                s.payloadId,
+                                s.PAYLOAD_ID
+                            ) || noradId || 'SAT';
+
+                            const country = pickString(
+                                s.country,
+                                s.countryCode,
+                                s.country_code,
+                                s.country_of_registry,
+                                s.owner,
+                                s.ORIGIN,
+                                s.origin,
+                                s.countryOwner,
+                                s.country_operator,
+                                s.operator_country,
+                                s.countryOfOperator,
+                                s.COUNTRY,
+                                s.Country,
+                                s.Nation,
+                                s.nation,
+                                s.operator_country_code
+                            ) || 'TBD';
+
+                            const launchDate = pickString(
+                                s.launchDate,
+                                s.launch_date,
+                                s.LaunchDate,
+                                s.LAUNCH_DATE,
+                                s.launch,
+                                s.DEP_DATE
+                            );
 
                             return {
-                                id: idx,
-                                name: s.name || 'SAT',
+                                id: typeof s.id === 'number' ? s.id : idx,
+                                name,
                                 tle1: s.tle1,
                                 tle2: s.tle2,
                                 norad: noradId,
-                                launchDate: s.launchDate || new Date().toISOString(),
-                                country: s.country || 'TBD',
+                                launchDate: launchDate || new Date().toISOString(),
+                                country,
                                 type: 1,
                                 source: s.source || 'Unknown',
                                 isUserCreated: false
@@ -505,6 +703,7 @@ export const ArcGlobe: React.FC = () => {
                         // Use classic worker served from public to avoid bundler issues
                         try {
                             worker = new Worker('/arcgis/worker.js');
+                            workerRef.current = worker;
                             console.log('ArcGlobe: Worker created successfully');
 
                             // Add error handling for worker
@@ -572,6 +771,13 @@ export const ArcGlobe: React.FC = () => {
                                             geometry: createTrackPolyline(path),
                                             symbol: { type: 'line-3d', symbolLayers: [{ type: 'line', size: 2, material: { color: [192, 192, 192, 0.6] } }] },
                                         });
+                                        if (typeof data.id === 'number') {
+                                            const existing = trackGraphicsRef.current.get(data.id);
+                                            if (existing) {
+                                                tracksLayer.remove(existing);
+                                            }
+                                            trackGraphicsRef.current.set(data.id, line);
+                                        }
                                         tracksLayer.add(line);
                                     }
                                 }
@@ -610,14 +816,80 @@ export const ArcGlobe: React.FC = () => {
         boot();
 
         return () => {
-            cancelled = true;
             try { (view as any)?.destroy?.(); } catch { }
             try { worker?.terminate?.(); } catch { }
             try { tooltipService.dispose(); } catch { }
+            trackGraphicsRef.current.forEach((graphic) => {
+                tracksLayerRef.current?.remove?.(graphic);
+            });
+            trackGraphicsRef.current.clear();
+            tracksLayerRef.current = null;
+            selectedIdRef.current = null;
             setIsLoading(false);
             isLoadingRef.current = false;
+            clearSelectedSatellite();
         };
     }, []);
+
+    useEffect(() => (
+        orbitPlotService.subscribe((event) => {
+            if (orbitPlotRequestRef.current !== event.requestId) {
+                return;
+            }
+            setOrbitPlotState((prev) => {
+                if (!prev || prev.mode !== event.mode || prev.requestId !== event.requestId) {
+                    return prev;
+                }
+                return {
+                    ...prev,
+                    series: event.series,
+                    isLoading: false,
+                    error: event.series.length ? null : 'No samples returned for this orbit.'
+                };
+            });
+        })
+    ), []);
+
+    const handleOpenOrbitPlot = (mode: OrbitPlotMode) => {
+        const selectedIds = selectedIdRef.current !== null
+            ? [selectedIdRef.current]
+            : selectedSatellite?.id !== undefined
+                ? [selectedSatellite.id]
+                : [];
+
+        const title = mode === 'eci' ? 'ECI Orbit Plot' : 'ECF Orbit Plot';
+
+        if (!selectedIds.length) {
+            setOrbitPlotState({
+                mode,
+                satellites: [],
+                title,
+                series: null,
+                isLoading: false,
+                error: 'Select a satellite to plot its orbit.',
+                requestId: null
+            });
+            setSelectedFeature(mode === 'eci' ? 'eci-plot' : 'ecf-plot');
+            return;
+        }
+
+        const requestId = (orbitPlotRequestRef.current = orbitPlotService.requestOrbitSamples(mode, selectedIds));
+
+        setOrbitPlotState({
+            mode,
+            satellites: selectedIds,
+            title,
+            series: null,
+            isLoading: true,
+            error: null,
+            requestId
+        });
+        setShowCollisionAnalysis(false);
+        setShowConstellationAnalysis(false);
+        setShowDebrisScanner(false);
+        setShowCreateSatellite(false);
+        setSelectedFeature(mode === 'eci' ? 'eci-plot' : 'ecf-plot');
+    };
 
     return (
         <>
@@ -642,10 +914,9 @@ export const ArcGlobe: React.FC = () => {
                 isFilterOpen={filterPanelVisible}
                 onToggleFilters={handleToggleFilters}
                 onApplyFilters={handleApplyFilters}
+                onResetView={handleGlobalReset}
+                resetDisabled={isLoading}
             />
-            <button className="reset-view-button" onClick={handleGlobalReset} type="button" title="Reset to all satellites">
-                Reset View
-            </button>
             <Footer
                 isVisible={!!activeFeature}
                 title={activeFeatureTitle}
@@ -654,6 +925,7 @@ export const ArcGlobe: React.FC = () => {
                     setShowCreateSatellite(false);
                     setShowConstellationAnalysis(false);
                     setShowDebrisScanner(false);
+                    setOrbitPlotState(null);
                     setSelectedFeature(null);
                 }}
             >
@@ -665,6 +937,7 @@ export const ArcGlobe: React.FC = () => {
                     <p>Filter by Country, NORAD, or Year (coming soon).</p>
                 </div>
             )}
+            <SelectedObjectPanel satellite={selectedSatellite} />
         </>
     );
 };

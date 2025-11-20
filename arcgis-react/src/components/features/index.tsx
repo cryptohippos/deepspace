@@ -1,14 +1,17 @@
 import React from 'react';
 import { CollisionAnalysis, type CollisionEvent } from '~/components/features/CollisionAnalysis';
-import { ConstellationAnalysis } from '~/components/features/ConstellationAnalysis.tsx';
+import { ConstellationAnalysis } from '~/components/features/ConstellationAnalysis';
 import { CreateSatellite } from '~/components/features/CreateSatellite';
 import { DebrisScanner } from '~/components/features/DebrisScanner';
+import { OrbitPlot } from '~/components/features/orbit-plots/OrbitPlot';
+import type { OrbitPlotMode, OrbitPlotSeries } from '~/components/features/orbit-plots/types';
 
 export type ActiveFeature =
     | { name: 'collision'; props: { onClose: () => void; onCollisionSelect: (e: CollisionEvent) => void } }
     | { name: 'constellation'; props: { onClose: () => void; onConstellationSelect: (c: any) => void; onConstellationHighlight: (c: any, i?: 'hover' | 'select' | 'clear') => void } }
     | { name: 'create-satellite'; props: { onClose: () => void; onSatelliteCreated: (sat: any) => void } }
-    | { name: 'debris-scanner'; props: { onClose: () => void; getInstancedApi: () => any; satelliteService: any } };
+    | { name: 'debris-scanner'; props: { onClose: () => void; getInstancedApi: () => any; satelliteService: any } }
+    | { name: 'orbit-plot'; props: { onClose: () => void; mode: OrbitPlotMode; worker: Worker | null; satelliteIds: number[]; title: string; data: OrbitPlotSeries[] | null; loading: boolean; error: string | null } };
 
 interface FeatureHostProps {
     active: ActiveFeature | null;
@@ -51,7 +54,21 @@ export const FeatureHost: React.FC<FeatureHostProps> = ({ active }) => {
                     satelliteService={active.props.satelliteService}
                 />
             );
+        case 'orbit-plot':
+            return (
+                <OrbitPlot
+                    isVisible={true}
+                    mode={active.props.mode}
+                    worker={active.props.worker}
+                    satelliteIds={active.props.satelliteIds}
+                    title={active.props.title}
+                    onClose={active.props.onClose}
+                    initialData={active.props.data}
+                    isRemoteLoading={active.props.loading}
+                    errorMessage={active.props.error}
+                />
+            );
         default:
             return null;
     }
-}
+};

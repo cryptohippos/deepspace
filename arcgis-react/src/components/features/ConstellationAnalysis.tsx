@@ -15,14 +15,13 @@ export interface Constellation {
 
 export interface ConstellationAnalysisProps {
     isVisible: boolean;
-    onClose: () => void;
     onConstellationSelect: (constellation: Constellation) => void;
     onConstellationHighlight: (constellation: Constellation | null, interaction?: 'hover' | 'select' | 'clear') => void;
+    onClose?: () => void;
 }
 
 export const ConstellationAnalysis: React.FC<ConstellationAnalysisProps> = ({
     isVisible,
-    onClose,
     onConstellationSelect,
     onConstellationHighlight
 }) => {

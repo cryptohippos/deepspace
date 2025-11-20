@@ -55,7 +55,9 @@ export const FeatureMenu: React.FC<FeatureMenuProps> = ({
             { id: 'create-breakup', name: 'Create Breakup', icon: '💥', description: 'Simulate satellite breakup event' }
         ],
         analysis: [
-            { id: 'debris-scanner', name: 'Debris Scanner', icon: '🔍', description: 'Analyze debris in orbital regions' }
+            { id: 'debris-scanner', name: 'Debris Scanner', icon: '🔍', description: 'Analyze debris in orbital regions' },
+            { id: 'eci-plot', name: 'ECI Plot', icon: '🌐', description: 'Earth-centered inertial orbit plot' },
+            { id: 'ecf-plot', name: 'ECF Plot', icon: '🧭', description: 'Earth-fixed orbit plot' }
         ]
     } as const;
 
@@ -65,6 +67,7 @@ export const FeatureMenu: React.FC<FeatureMenuProps> = ({
         } else {
             onFeatureSelect(featureId);
         }
+        onClose?.();
     };
 
     const handleTabClick = (tab: MenuTab) => setActiveTab(tab);

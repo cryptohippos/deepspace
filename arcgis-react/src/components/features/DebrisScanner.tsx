@@ -50,10 +50,6 @@ function vectorLength(v: Vector3): number {
     return Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
 }
 
-function dot(a: Vector3, b: Vector3): number {
-    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-}
-
 function computeRelativeVelocity(v1: Vector3, v2: Vector3): number {
     return vectorLength(subtractVectors(v1, v2));
 }
@@ -186,13 +182,6 @@ export const DebrisScanner: React.FC<DebrisScannerProps> = ({ isVisible, onClose
     const pagedSatellites = filteredSatellites.slice(currentPage * PAGE_SIZE, currentPage * PAGE_SIZE + PAGE_SIZE);
 
     useEffect(() => {
-        if (!isVisible) {
-            setResults([]);
-            setError(null);
-        }
-    }, [isVisible]);
-
-    useEffect(() => {
         setViewFiltered(results.length > 0 && results !== lastScanResults);
     }, [results, lastScanResults]);
 
@@ -297,19 +286,33 @@ export const DebrisScanner: React.FC<DebrisScannerProps> = ({ isVisible, onClose
     const primarySat = primaryId !== null ? allSatellites.find((sat) => sat.id === primaryId) : null;
 
     return (
-        <div className="debris-scanner-overlay">
-            <div className="debris-scanner-panel">
-                <header className="panel-header">
-                    <h2>Debris Scanner</h2>
-                    <button className="close-button" onClick={onClose} aria-label="Close Debris Scanner">
-                        ×
-                    </button>
+        <>
+            <div className="debris-scanner">
+                <header className="debris-scanner__header">
+                    <div>
+                        <h2>Debris Scanner</h2>
+                        <span className="debris-scanner__subtitle">Assess local conjunction risk for any tracked satellite.</span>
+                    </div>
+                    <div className="debris-scanner__summary">
+                        <div className="summary-block">
+                            <span className="summary-label">Primary</span>
+                            <span className="summary-value">{primarySat ? primarySat.name : 'Not selected'}</span>
+                        </div>
+                        <div className="summary-block">
+                            <span className="summary-label">Window</span>
+                            <span className="summary-value">{durationSelection.label}</span>
+                        </div>
+                        <div className="summary-block">
+                            <span className="summary-label">Bounding Radius</span>
+                            <span className="summary-value">{radiusSelection.label}</span>
+                        </div>
+                    </div>
                 </header>
 
-                <div className="panel-content">
-                    <section className="panel-section">
+                <div className="debris-scanner__content">
+                    <section className="debris-scanner__section">
                         <h3>Search Parameters</h3>
-                        <div className="field-grid">
+                        <div className="debris-scanner__grid">
                             <div className="field">
                                 <span>Primary Satellite</span>
                                 <button
@@ -353,27 +356,27 @@ export const DebrisScanner: React.FC<DebrisScannerProps> = ({ isVisible, onClose
                         </div>
                     </section>
 
-                    <section className="panel-section">
+                    <section className="debris-scanner__section">
                         <h3>Results</h3>
                         {isComputing ? (
-                            <div className="status">Computing potential encounters…</div>
+                            <div className="debris-scanner__status">Computing potential encounters…</div>
                         ) : error ? (
-                            <div className="status error">{error}</div>
+                            <div className="debris-scanner__status debris-scanner__status--error">{error}</div>
                         ) : results.length === 0 ? (
-                            <div className="status">No debris objects detected for the selected parameters.</div>
+                            <div className="debris-scanner__status">No debris objects detected for the selected parameters.</div>
                         ) : (
-                            <div className="results-table">
-                                <div className="table-header">
+                            <div className="debris-scanner__table">
+                                <div className="debris-scanner__table-header">
                                     <span>Name</span>
                                     <span>NORAD</span>
                                     <span>Distance (km)</span>
                                     <span>Relative Velocity (m/s)</span>
                                 </div>
-                                <div className="table-body">
+                                <div className="debris-scanner__table-body">
                                     {results.map((obj) => (
                                         <button
                                             key={obj.id}
-                                            className="table-row"
+                                            className="debris-scanner__table-row"
                                             onClick={() => {
                                                 const api = getInstancedApi();
                                                 if (api) {
@@ -393,7 +396,7 @@ export const DebrisScanner: React.FC<DebrisScannerProps> = ({ isVisible, onClose
                     </section>
                 </div>
 
-                <footer className="panel-footer">
+                <footer className="debris-scanner__footer">
                     <button className="btn primary" onClick={handleScan} disabled={isComputing}>
                         {isComputing ? 'Analyzing…' : 'Screen for Debris'}
                     </button>
@@ -474,7 +477,7 @@ export const DebrisScanner: React.FC<DebrisScannerProps> = ({ isVisible, onClose
                     document.body
                 )
                 : null}
-        </div>
+        </>
     );
 };
 

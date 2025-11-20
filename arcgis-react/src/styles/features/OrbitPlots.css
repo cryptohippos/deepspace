@@ -1,0 +1,289 @@
+.orbit-plot-panel.visible {
+    display: flex;
+}
+
+.orbit-plot-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 18px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background: linear-gradient(135deg, rgba(60, 93, 150, 0.22), rgba(15, 24, 36, 0.6));
+}
+
+.orbit-plot-header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: #f0f7ff;
+    letter-spacing: 0.03em;
+}
+
+.orbit-plot-close {
+    border: none;
+    background: rgba(255, 255, 255, 0.08);
+    color: #f0f7ff;
+    border-radius: 6px;
+    padding: 6px 10px;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.orbit-plot-close:hover {
+    background: rgba(255, 255, 255, 0.18);
+}
+
+.orbit-plot-body {
+    position: relative;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 12px;
+    gap: 12px;
+}
+
+.orbit-plot-chart {
+    flex: 1;
+    min-height: 320px;
+}
+
+.orbit-plot-loading {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    background: rgba(5, 10, 18, 0.65);
+    color: #ddebff;
+    z-index: 2;
+}
+
+.orbit-plot-loading .spinner {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 3px solid rgba(255, 255, 255, 0.2);
+    border-top-color: #6fd1ff;
+    animation: orbit-spinner 0.8s linear infinite;
+}
+
+.orbit-plot-error {
+    padding: 16px;
+    border-radius: 10px;
+    background: rgba(255, 94, 94, 0.1);
+    border: 1px solid rgba(255, 94, 94, 0.3);
+    color: #ffc7c7;
+    font-size: 14px;
+}
+
+.orbit-tooltip {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    color: #10161f;
+}
+
+.orbit-tooltip__header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+    color: #10161f;
+}
+
+.orbit-tooltip__color {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+}
+
+.orbit-tooltip__row {
+    font-size: 12px;
+}
+
+@keyframes orbit-panel-in {
+    from {
+        opacity: 0;
+        transform: translateX(12px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes orbit-spinner {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.orbit-plot-panel {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    width: 540px;
+    height: 100%;
+    background: rgba(10, 16, 24, 0.94);
+    border-left: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: -14px 0 40px rgba(0, 0, 0, 0.42);
+    animation: orbit-panel-in 0.25s ease-out;
+    overflow: hidden;
+    transition: transform 0.2s ease, width 0.2s ease, height 0.2s ease;
+}
+
+.orbit-plot-panel.visible {
+    display: flex;
+}
+
+.orbit-plot-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 18px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background: linear-gradient(135deg, rgba(60, 93, 150, 0.22), rgba(15, 24, 36, 0.6));
+    gap: 12px;
+}
+
+.orbit-plot-header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: #f0f7ff;
+    letter-spacing: 0.03em;
+}
+
+.orbit-plot-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.orbit-plot-toggle,
+.orbit-plot-close {
+    border: none;
+    background: rgba(255, 255, 255, 0.08);
+    color: #f0f7ff;
+    border-radius: 6px;
+    padding: 6px 10px;
+    cursor: pointer;
+    transition: background 0.2s ease;
+    font-size: 12px;
+    letter-spacing: 0.02em;
+}
+
+.orbit-plot-toggle:hover,
+.orbit-plot-close:hover {
+    background: rgba(255, 255, 255, 0.18);
+}
+
+.orbit-plot-panel.collapsed {
+    width: 320px;
+    height: auto;
+    max-height: 220px;
+    align-self: flex-end;
+}
+
+.orbit-plot-panel.collapsed .orbit-plot-body {
+    display: none;
+}
+
+.orbit-plot-body {
+    position: relative;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 12px;
+    gap: 12px;
+}
+
+.orbit-plot-chart {
+    flex: 1;
+    min-height: 320px;
+}
+
+.orbit-plot-loading {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    background: rgba(5, 10, 18, 0.65);
+    color: #ddebff;
+    z-index: 2;
+}
+
+.orbit-plot-loading .spinner {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 3px solid rgba(255, 255, 255, 0.2);
+    border-top-color: #6fd1ff;
+    animation: orbit-spinner 0.8s linear infinite;
+}
+
+.orbit-plot-error {
+    padding: 16px;
+    border-radius: 10px;
+    background: rgba(255, 94, 94, 0.1);
+    border: 1px solid rgba(255, 94, 94, 0.3);
+    color: #ffc7c7;
+    font-size: 14px;
+}
+
+.orbit-tooltip {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    color: #10161f;
+}
+
+.orbit-tooltip__header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+    color: #10161f;
+}
+
+.orbit-tooltip__color {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+}
+
+.orbit-tooltip__row {
+    font-size: 12px;
+}
+
+@keyframes orbit-panel-in {
+    from {
+        opacity: 0;
+        transform: translateX(12px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes orbit-spinner {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
