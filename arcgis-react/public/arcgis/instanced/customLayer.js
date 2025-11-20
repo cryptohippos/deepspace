@@ -15,6 +15,8 @@
             lastVelBuf: null,
             lastCount: 0,
             hasStash: false,
+            lastColorBuf: null,
+            hasColorStash: false,
             // store last known matrices for picking
             lastViewMatrix: null,
             lastProjectionMatrix: null
@@ -118,6 +120,30 @@
                     try { require(['esri/views/3d/externalRenderers'], function (externalRenderers) { externalRenderers.requestRender(view); }); } catch (e) { }
                 }
             },
+            setBaseColors: function (buffer) {
+                try {
+                    let colors = null;
+                    if (buffer instanceof Float32Array) {
+                        colors = buffer.slice();
+                    } else if (buffer instanceof ArrayBuffer) {
+                        colors = new Float32Array(buffer);
+                    } else if (buffer && typeof buffer.length === 'number') {
+                        colors = new Float32Array(buffer);
+                    } else if (buffer === null) {
+                        colors = null;
+                    }
+
+                    state.lastColorBuf = colors;
+
+                    if (state.renderer && state.renderer.setBaseColors && colors) {
+                        state.renderer.setBaseColors(colors);
+                        state.hasColorStash = false;
+                        try { require(['esri/views/3d/externalRenderers'], function (externalRenderers) { externalRenderers.requestRender(view); }); } catch (e) { }
+                    } else if (colors) {
+                        state.hasColorStash = true;
+                    }
+                } catch (e) { if (DEBUG) console.error('setBaseColors failed', e); }
+            },
             getSelectedId: function () {
                 if (state.renderer && typeof state.renderer.getSelectedId === 'function') {
                     return state.renderer.getSelectedId();
@@ -153,6 +179,11 @@
                                 state.renderer.updatePV(state.lastPosBuf, state.lastVelBuf || new ArrayBuffer(0), state.lastCount);
                                 try { require(['esri/views/3d/externalRenderers'], function (externalRenderers) { externalRenderers.requestRender(view); }); } catch (e) { }
                                 state.hasStash = false;
+                            }
+                            if (state.renderer && state.hasColorStash && state.lastColorBuf) {
+                                state.renderer.setBaseColors(state.lastColorBuf);
+                                try { require(['esri/views/3d/externalRenderers'], function (externalRenderers) { externalRenderers.requestRender(view); }); } catch (e) { }
+                                state.hasColorStash = false;
                             }
                         } catch (e) { if (DEBUG) console.error('[instanced] setup failed', e); }
                     },

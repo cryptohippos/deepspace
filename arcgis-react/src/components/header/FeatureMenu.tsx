@@ -48,6 +48,7 @@ export const FeatureMenu: React.FC<FeatureMenuProps> = ({
         basic: [
             { id: 'collision', name: 'Collision Analysis', icon: '⚠️', description: 'View potential satellite collisions' },
             { id: 'create-satellite', name: 'Create Satellite', icon: '🛰️', description: 'Add new satellite to simulation' },
+            { id: 'color-schemes', name: 'Color Schemes', icon: '🎨', description: 'Adjust base colors for satellites' },
             { id: 'test-constellations', name: 'Test Constellations', icon: '🌌', description: 'Analyze satellite constellations' },
             { id: 'new-launch', name: 'New Launch', icon: '🚀', description: 'Simulate satellite launch' }
         ],

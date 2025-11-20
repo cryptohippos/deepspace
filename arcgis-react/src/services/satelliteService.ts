@@ -1,3 +1,5 @@
+export type SatelliteObjectType = 'PAYLOAD' | 'ROCKET BODY' | 'DEBRIS' | 'SPECIAL' | 'UNKNOWN' | 'OTHER';
+
 export interface SatelliteData {
     id: number;
     name: string;
@@ -9,6 +11,10 @@ export interface SatelliteData {
     type: number;
     source: string;
     isUserCreated: boolean;
+    objectType?: SatelliteObjectType | string;
+    owner?: string | null;
+    opsStatus?: string | null;
+    dataStatus?: string | null;
 }
 
 export interface SatelliteFormData {
@@ -102,6 +108,8 @@ export class SatelliteService {
         // Create satellite metadata
         this.maxAssignedIndex += 1;
         const newId = this.maxAssignedIndex;
+        const objectType: SatelliteObjectType = 'PAYLOAD';
+
         const newSatellite: SatelliteData = {
             id: newId,
             name: formData.name,
@@ -112,7 +120,11 @@ export class SatelliteService {
             country: formData.country,
             type: parseInt(formData.type),
             source: formData.source || 'User Created',
-            isUserCreated: true
+            isUserCreated: true,
+            objectType,
+            owner: formData.country,
+            opsStatus: null,
+            dataStatus: null
         };
 
         // Add to metadata array

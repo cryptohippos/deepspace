@@ -3,6 +3,7 @@ import { CollisionAnalysis, type CollisionEvent } from '~/components/features/Co
 import { ConstellationAnalysis } from '~/components/features/ConstellationAnalysis';
 import { CreateSatellite } from '~/components/features/CreateSatellite';
 import { DebrisScanner } from '~/components/features/DebrisScanner';
+import { ColorSchemePanel } from '~/components/features/color-schemes/ColorSchemePanel';
 import { OrbitPlot } from '~/components/features/orbit-plots/OrbitPlot';
 import type { OrbitPlotMode, OrbitPlotSeries } from '~/components/features/orbit-plots/types';
 
@@ -11,6 +12,7 @@ export type ActiveFeature =
     | { name: 'constellation'; props: { onClose: () => void; onConstellationSelect: (c: any) => void; onConstellationHighlight: (c: any, i?: 'hover' | 'select' | 'clear') => void } }
     | { name: 'create-satellite'; props: { onClose: () => void; onSatelliteCreated: (sat: any) => void } }
     | { name: 'debris-scanner'; props: { onClose: () => void; getInstancedApi: () => any; satelliteService: any } }
+    | { name: 'color-schemes'; props: { onClose: () => void } }
     | { name: 'orbit-plot'; props: { onClose: () => void; mode: OrbitPlotMode; worker: Worker | null; satelliteIds: number[]; title: string; data: OrbitPlotSeries[] | null; loading: boolean; error: string | null } };
 
 interface FeatureHostProps {
@@ -52,6 +54,13 @@ export const FeatureHost: React.FC<FeatureHostProps> = ({ active }) => {
                     onClose={active.props.onClose}
                     getInstancedApi={active.props.getInstancedApi}
                     satelliteService={active.props.satelliteService}
+                />
+            );
+        case 'color-schemes':
+            return (
+                <ColorSchemePanel
+                    isVisible={true}
+                    onClose={active.props.onClose}
                 />
             );
         case 'orbit-plot':
