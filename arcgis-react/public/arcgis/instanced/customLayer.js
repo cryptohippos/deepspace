@@ -155,6 +155,25 @@
                     }
                 } catch (e) { if (DEBUG) console.error('setBaseColors failed', e); }
             },
+            setWatchlistFlags: function (flags) {
+                if (state.renderer && typeof state.renderer.setWatchlistFlags === 'function') {
+                    try {
+                        state.renderer.setWatchlistFlags(flags);
+                    } catch (e) {
+                        if (DEBUG) console.error('setWatchlistFlags failed', e);
+                    }
+                }
+            },
+            getLonLatHeight: function (index) {
+                if (state.renderer && typeof state.renderer.getLonLatHeight === 'function') {
+                    try {
+                        return state.renderer.getLonLatHeight(index);
+                    } catch (e) {
+                        if (DEBUG) console.error('getLonLatHeight failed', e);
+                    }
+                }
+                return null;
+            },
             getSelectedId: function () {
                 if (state.renderer && typeof state.renderer.getSelectedId === 'function') {
                     return state.renderer.getSelectedId();

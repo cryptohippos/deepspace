@@ -310,6 +310,12 @@
     gap: 12px;
 }
 
+.selected-object-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
 .selected-object-title {
     font-size: 15px;
     font-weight: 600;
@@ -319,6 +325,28 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.selected-object-watchlist {
+    border: none;
+    background: rgba(255, 255, 255, 0.12);
+    color: #ffd98f;
+    border-radius: 999px;
+    padding: 6px 14px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    transition: background 0.2s ease, color 0.2s ease;
+}
+
+.selected-object-watchlist:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.selected-object-watchlist.active {
+    background: rgba(255, 210, 120, 0.92);
+    color: #0b1828;
 }
 
 .selected-object-toggle {

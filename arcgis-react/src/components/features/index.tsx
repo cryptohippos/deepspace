@@ -7,6 +7,7 @@ import { ColorSchemePanel } from '~/components/features/color-schemes/ColorSchem
 import { OrbitPlot } from '~/components/features/orbit-plots/OrbitPlot';
 import type { OrbitPlotMode, OrbitPlotSeries } from '~/components/features/orbit-plots/types';
 import { TakePhotoPanel } from '~/components/features/take-photo/TakePhotoPanel';
+import { WatchlistPanel } from '~/components/features/watchlist/WatchlistPanel';
 
 export type ActiveFeature =
     | { name: 'collision'; props: { onClose: () => void; onCollisionSelect: (e: CollisionEvent) => void } }
@@ -15,6 +16,7 @@ export type ActiveFeature =
     | { name: 'debris-scanner'; props: { onClose: () => void; getInstancedApi: () => any; satelliteService: any } }
     | { name: 'color-schemes'; props: { onClose: () => void } }
     | { name: 'take-photo'; props: { onClose: () => void } }
+    | { name: 'watchlist'; props: { onClose: () => void; onFocusSatellite: (id: number) => void } }
     | { name: 'orbit-plot'; props: { onClose: () => void; mode: OrbitPlotMode; worker: Worker | null; satelliteIds: number[]; title: string; data: OrbitPlotSeries[] | null; loading: boolean; error: string | null } };
 
 interface FeatureHostProps {
@@ -70,6 +72,14 @@ export const FeatureHost: React.FC<FeatureHostProps> = ({ active }) => {
                 <TakePhotoPanel
                     isVisible={true}
                     onClose={active.props.onClose}
+                />
+            );
+        case 'watchlist':
+            return (
+                <WatchlistPanel
+                    isVisible={true}
+                    onClose={active.props.onClose}
+                    onFocusSatellite={active.props.onFocusSatellite}
                 />
             );
         case 'orbit-plot':

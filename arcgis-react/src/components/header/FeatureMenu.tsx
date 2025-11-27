@@ -54,6 +54,7 @@ export const FeatureMenu: React.FC<FeatureMenuProps> = ({
             { id: 'new-launch', name: 'New Launch', icon: '🚀', description: 'Simulate satellite launch' }
         ],
         advanced: [
+            { id: 'watchlist', name: 'Watchlist', icon: '⭐', description: 'Monitor priority satellites' },
             { id: 'create-breakup', name: 'Create Breakup', icon: '💥', description: 'Simulate satellite breakup event' }
         ],
         analysis: [
