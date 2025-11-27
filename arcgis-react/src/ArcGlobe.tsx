@@ -346,8 +346,10 @@ export const ArcGlobe: React.FC = () => {
         setSelectedSatellite(satellite);
         tooltipService.hideTooltip();
         try {
-            instancedApiRef.current?.setSelectedId?.(id);
-            instancedApiRef.current?.setHighlightedSatellite?.(id, undefined, false);
+            const instancedApi = instancedApiRef.current;
+            instancedApi?.setHighlightedSatellite?.(null);
+            instancedApi?.setSelectedId?.(id);
+            instancedApi?.setHighlightedSatellite?.(id, [0.2, 1.0, 0.2], false);
         } catch (error) {
             console.warn('ArcGlobe: Failed to update instanced renderer for watchlist selection', error);
         }
@@ -356,13 +358,20 @@ export const ArcGlobe: React.FC = () => {
             const [lon, lat, height] = coords;
             const view: any = viewRef.current;
             if (view && typeof view.goTo === 'function' && typeof lon === 'number' && typeof lat === 'number') {
+                const altitude = Number.isFinite(height) ? height : 0;
+                const offsetAltitude = Math.max(altitude + 400000, 700000);
                 const target = {
                     type: 'point',
                     longitude: lon,
                     latitude: lat,
-                    z: typeof height === 'number' ? height : undefined
+                    z: altitude
                 };
-                view.goTo({ target, tilt: 0 }, { duration: 1500, easing: 'ease-in-out' }).catch(() => { /* ignore */ });
+                const position = {
+                    longitude: lon,
+                    latitude: lat,
+                    z: offsetAltitude
+                };
+                view.goTo({ target, position, tilt: 25 }, { duration: 1800, easing: 'ease-in-out' }).catch(() => { /* ignore */ });
             }
         }
         const worker = workerRef.current;

@@ -539,8 +539,8 @@
             }
             // If highlighting a single satellite without filtering others, make it bigger without shader changes
             if (!state.hideNonHighlighted && state.highlightedId !== -1) {
-                state.baseSize = state.baseSizeDefault * 10.0;
-                state.maxSize = state.maxSizeDefault * 10.0;
+                state.baseSize = state.baseSizeDefault * 3.0;
+                state.maxSize = state.maxSizeDefault * 3.0;
             } else if (state.highlightedId === -1 && !state.hideNonHighlighted) {
                 state.baseSize = state.baseSizeDefault;
                 state.maxSize = state.maxSizeDefault;
