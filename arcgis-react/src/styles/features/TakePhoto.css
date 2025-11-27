@@ -1,0 +1,159 @@
+.take-photo-panel {
+    display: flex;
+    flex-direction: column;
+    width: 420px;
+    background: rgba(10, 16, 28, 0.96);
+    border: 1px solid rgba(120, 170, 255, 0.25);
+    border-radius: 18px;
+    padding: 20px 24px;
+    color: #f1f6ff;
+    box-shadow: 0 32px 80px rgba(6, 10, 20, 0.6);
+}
+
+.take-photo-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 18px;
+}
+
+.take-photo-header h3 {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.take-photo-close {
+    background: transparent;
+    border: none;
+    color: #9db8e8;
+    font-size: 1.1rem;
+    padding: 4px 8px;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.take-photo-close:hover {
+    background: rgba(150, 190, 255, 0.18);
+    color: #ffffff;
+}
+
+.take-photo-body {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    margin-bottom: 20px;
+}
+
+.take-photo-section h4 {
+    margin: 0 0 12px 0;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #c6dbff;
+}
+
+.take-photo-resolution-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.take-photo-resolution {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid rgba(120, 170, 255, 0.25);
+    border-radius: 12px;
+    cursor: pointer;
+    transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.take-photo-resolution input {
+    accent-color: #6fa2ff;
+}
+
+.take-photo-resolution.selected {
+    border-color: rgba(120, 170, 255, 0.8);
+    background: rgba(120, 170, 255, 0.16);
+}
+
+.take-photo-input {
+    width: 100%;
+    padding: 11px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(120, 170, 255, 0.25);
+    background: rgba(8, 12, 24, 0.9);
+    color: #f1f6ff;
+    font-size: 0.95rem;
+}
+
+.take-photo-input:focus {
+    outline: none;
+    border-color: rgba(120, 170, 255, 0.7);
+    box-shadow: 0 0 0 2px rgba(120, 170, 255, 0.3);
+}
+
+.take-photo-hint {
+    margin: 8px 0 0 0;
+    color: #8ea4c8;
+    font-size: 0.8rem;
+}
+
+.take-photo-alert {
+    padding: 10px 12px;
+    border-radius: 12px;
+    font-size: 0.9rem;
+}
+
+.take-photo-alert.error {
+    background: rgba(210, 82, 82, 0.18);
+    border: 1px solid rgba(210, 82, 82, 0.35);
+    color: #ffc0c0;
+}
+
+.take-photo-alert.success {
+    background: rgba(70, 170, 120, 0.18);
+    border: 1px solid rgba(70, 170, 120, 0.35);
+    color: #b9f3d9;
+}
+
+.take-photo-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+}
+
+.take-photo-button {
+    min-width: 120px;
+    padding: 11px 18px;
+    border-radius: 999px;
+    border: none;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.15s ease, background 0.15s ease, opacity 0.15s ease;
+}
+
+.take-photo-button.primary {
+    background: linear-gradient(135deg, #6ea4ff, #3f7eff);
+    color: #071022;
+}
+
+.take-photo-button.primary:hover:not(:disabled) {
+    transform: translateY(-1px);
+}
+
+.take-photo-button.secondary {
+    background: rgba(255, 255, 255, 0.12);
+    color: #f1f6ff;
+}
+
+.take-photo-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+body.take-photo-capturing .take-photo-panel,
+body.take-photo-capturing .feature-footer {
+    visibility: hidden;
+}

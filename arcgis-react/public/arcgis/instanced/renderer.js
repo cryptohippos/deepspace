@@ -577,6 +577,53 @@
             return { count, positions, velocities };
         }
 
+        function capture(params) {
+            if (state.disposed || !state.gl) {
+                return null;
+            }
+            const gl = state.gl;
+            const bufferWidth = gl.drawingBufferWidth | 0;
+            const bufferHeight = gl.drawingBufferHeight | 0;
+            if (!bufferWidth || !bufferHeight) {
+                return null;
+            }
+
+            try {
+                gl.finish?.();
+            } catch (e) { if (DEBUG) console.warn('capture finish failed', e); }
+
+            const pixels = new Uint8Array(bufferWidth * bufferHeight * 4);
+            gl.readPixels(0, 0, bufferWidth, bufferHeight, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+
+            const rowSize = bufferWidth * 4;
+            const tempRow = new Uint8Array(rowSize);
+            for (let y = 0; y < bufferHeight / 2; y++) {
+                const topOffset = y * rowSize;
+                const bottomOffset = (bufferHeight - y - 1) * rowSize;
+                tempRow.set(pixels.subarray(topOffset, topOffset + rowSize));
+                pixels.copyWithin(topOffset, bottomOffset, bottomOffset + rowSize);
+                pixels.set(tempRow, bottomOffset);
+            }
+
+            const canvas = document.createElement('canvas');
+            canvas.width = bufferWidth;
+            canvas.height = bufferHeight;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+                return null;
+            }
+
+            const imageData = ctx.createImageData(bufferWidth, bufferHeight);
+            imageData.data.set(pixels);
+            ctx.putImageData(imageData, 0, 0);
+
+            return {
+                dataUrl: canvas.toDataURL('image/png'),
+                width: bufferWidth,
+                height: bufferHeight
+            };
+        }
+
 
         return {
             updatePositions,
@@ -591,6 +638,7 @@
             setSearchBox,
             getPositionSnapshot,
             setBaseColors,
+            capture,
             dispose
         };
     }

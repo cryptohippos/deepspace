@@ -120,6 +120,17 @@
                     try { require(['esri/views/3d/externalRenderers'], function (externalRenderers) { externalRenderers.requestRender(view); }); } catch (e) { }
                 }
             },
+            capture: function (params) {
+                if (!state.renderer || typeof state.renderer.capture !== 'function') {
+                    return null;
+                }
+                try {
+                    return state.renderer.capture(params || {});
+                } catch (e) {
+                    if (DEBUG) console.error('capture failed', e);
+                    return null;
+                }
+            },
             setBaseColors: function (buffer) {
                 try {
                     let colors = null;
