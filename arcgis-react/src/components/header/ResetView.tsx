@@ -15,6 +15,7 @@ interface ResetViewDependencies {
     setShowColorSchemes: (value: boolean) => void;
     setShowTakePhoto: (value: boolean) => void;
     setShowWatchlist: (value: boolean) => void;
+    setShowSatellitePhotos: (value: boolean) => void;
     setSelectedFeature: (value: string | null) => void;
     onSelectedSatelliteChange?: (satellite: SatelliteData | null) => void;
 }
@@ -32,6 +33,7 @@ export const createResetViewHandler = ({
     setShowColorSchemes,
     setShowTakePhoto,
     setShowWatchlist,
+    setShowSatellitePhotos,
     setSelectedFeature,
     onSelectedSatelliteChange
 }: ResetViewDependencies): (() => void) => {
@@ -58,6 +60,7 @@ export const createResetViewHandler = ({
         setShowColorSchemes(false);
         setShowTakePhoto(false);
         setShowWatchlist(false);
+        setShowSatellitePhotos(false);
         setSelectedFeature(null);
         onSelectedSatelliteChange?.(null);
     };

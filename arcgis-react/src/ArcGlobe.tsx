@@ -141,6 +141,7 @@ import { createResetViewHandler } from './components/header/ResetView';
 import { SelectedObjectPanel } from './components/selected/SelectedObjectPanel';
 import { colorSchemeService } from './services/colorSchemeService';
 import { orbitPlotService } from './services/orbitPlotService';
+import { satellitePhotoService } from './services/satellitePhotoService';
 import { SatelliteService, type SatelliteData } from './services/satelliteService';
 import { screenshotService } from './services/screenshotService';
 import { TooltipService } from './services/tooltipService';
@@ -176,6 +177,7 @@ export const ArcGlobe: React.FC = () => {
     const [showColorSchemes, setShowColorSchemes] = useState(false);
     const [showTakePhoto, setShowTakePhoto] = useState(false);
     const [showWatchlist, setShowWatchlist] = useState(false);
+    const [showSatellitePhotos, setShowSatellitePhotos] = useState(false);
 
     const [filterPanelVisible, setFilterPanelVisible] = useState(false);
     const [selectedSatellite, setSelectedSatellite] = useState<SatelliteData | null>(null);
@@ -192,6 +194,15 @@ export const ArcGlobe: React.FC = () => {
     const orbitPlotRequestRef = useRef<number | null>(null);
 
     const clearSelectedSatellite = () => setSelectedSatellite(null);
+
+    useEffect(() => {
+        if (!showSatellitePhotos) {
+            return;
+        }
+        satellitePhotoService.getPhotos('meteosat11').catch((error) => {
+            console.warn('ArcGlobe: Satellite photos preload failed', error);
+        });
+    }, [showSatellitePhotos]);
 
     const handleCloseOrbitPlot = () => {
         setOrbitPlotState(null);
@@ -212,6 +223,7 @@ export const ArcGlobe: React.FC = () => {
         setShowColorSchemes,
         setShowTakePhoto,
         setShowWatchlist,
+        setShowSatellitePhotos,
         setSelectedFeature,
         onSelectedSatelliteChange: clearSelectedSatellite
     });
@@ -331,6 +343,11 @@ export const ArcGlobe: React.FC = () => {
         setSelectedFeature(null);
     };
 
+    const handleCloseSatellitePhotos = () => {
+        setShowSatellitePhotos(false);
+        setSelectedFeature(null);
+    };
+
     const handleFocusWatchlistSatellite = (id: number) => {
         if (typeof id !== 'number' || Number.isNaN(id)) {
             return;
@@ -397,6 +414,7 @@ export const ArcGlobe: React.FC = () => {
                 setShowColorSchemes(false);
                 setShowTakePhoto(false);
                 setShowWatchlist(false);
+                setShowSatellitePhotos(false);
                 clearSelectedSatellite();
                 break;
             case 'constellation':
@@ -407,6 +425,7 @@ export const ArcGlobe: React.FC = () => {
                 setShowColorSchemes(false);
                 setShowTakePhoto(false);
                 setShowWatchlist(false);
+                setShowSatellitePhotos(false);
                 clearSelectedSatellite();
                 break;
             case 'create-satellite':
@@ -417,6 +436,7 @@ export const ArcGlobe: React.FC = () => {
                 setShowColorSchemes(false);
                 setShowTakePhoto(false);
                 setShowWatchlist(false);
+                setShowSatellitePhotos(false);
                 clearSelectedSatellite();
                 break;
             case 'color-schemes':
@@ -427,6 +447,7 @@ export const ArcGlobe: React.FC = () => {
                 setShowCreateSatellite(false);
                 setShowTakePhoto(false);
                 setShowWatchlist(false);
+                setShowSatellitePhotos(false);
                 break;
             case 'take-photo':
                 setShowTakePhoto(true);
@@ -435,6 +456,17 @@ export const ArcGlobe: React.FC = () => {
                 setShowDebrisScanner(false);
                 setShowCreateSatellite(false);
                 setShowColorSchemes(false);
+                setShowWatchlist(false);
+                setShowSatellitePhotos(false);
+                break;
+            case 'satellite-photos':
+                setShowSatellitePhotos(true);
+                setShowCollisionAnalysis(false);
+                setShowConstellationAnalysis(false);
+                setShowDebrisScanner(false);
+                setShowCreateSatellite(false);
+                setShowColorSchemes(false);
+                setShowTakePhoto(false);
                 setShowWatchlist(false);
                 break;
             case 'watchlist':
@@ -445,6 +477,7 @@ export const ArcGlobe: React.FC = () => {
                 setShowCreateSatellite(false);
                 setShowColorSchemes(false);
                 setShowTakePhoto(false);
+                setShowSatellitePhotos(false);
                 break;
             case 'debris-scanner':
                 setShowDebrisScanner(true);
@@ -454,6 +487,7 @@ export const ArcGlobe: React.FC = () => {
                 setShowColorSchemes(false);
                 setShowTakePhoto(false);
                 setShowWatchlist(false);
+                setShowSatellitePhotos(false);
                 clearSelectedSatellite();
                 break;
             case 'eci-plot':
@@ -461,12 +495,14 @@ export const ArcGlobe: React.FC = () => {
                 setShowColorSchemes(false);
                 setShowTakePhoto(false);
                 setShowWatchlist(false);
+                setShowSatellitePhotos(false);
                 break;
             case 'ecf-plot':
                 handleOpenOrbitPlot('ecf');
                 setShowColorSchemes(false);
                 setShowTakePhoto(false);
                 setShowWatchlist(false);
+                setShowSatellitePhotos(false);
                 break;
             case 'new-launch':
                 console.log('New Launch feature selected');
@@ -1212,21 +1248,23 @@ export const ArcGlobe: React.FC = () => {
                             ? { name: 'take-photo', props: { onClose: () => handleCloseTakePhoto() } }
                             : showWatchlist
                                 ? { name: 'watchlist', props: { onClose: () => handleCloseWatchlist(), onFocusSatellite: handleFocusWatchlistSatellite } }
-                                : orbitPlotState
-                                    ? {
-                                        name: 'orbit-plot',
-                                        props: {
-                                            onClose: handleCloseOrbitPlot,
-                                            mode: orbitPlotState.mode,
-                                            worker: workerRef.current,
-                                            satelliteIds: orbitPlotState.satellites,
-                                            title: orbitPlotState.title,
-                                            data: orbitPlotState.series,
-                                            loading: orbitPlotState.isLoading,
-                                            error: orbitPlotState.error
+                                : showSatellitePhotos
+                                    ? { name: 'satellite-photos', props: { onClose: () => handleCloseSatellitePhotos(), onFocusSatellite: handleFocusWatchlistSatellite } }
+                                    : orbitPlotState
+                                        ? {
+                                            name: 'orbit-plot',
+                                            props: {
+                                                onClose: handleCloseOrbitPlot,
+                                                mode: orbitPlotState.mode,
+                                                worker: workerRef.current,
+                                                satelliteIds: orbitPlotState.satellites,
+                                                title: orbitPlotState.title,
+                                                data: orbitPlotState.series,
+                                                loading: orbitPlotState.isLoading,
+                                                error: orbitPlotState.error
+                                            }
                                         }
-                                    }
-                                    : null;
+                                        : null;
 
     const activeFeatureTitle = activeFeature ? (
         activeFeature.name === 'collision' ? 'Collision Analysis'
@@ -1236,8 +1274,9 @@ export const ArcGlobe: React.FC = () => {
                         : activeFeature.name === 'color-schemes' ? 'Color Schemes'
                             : activeFeature.name === 'take-photo' ? 'Take Photo'
                                 : activeFeature.name === 'watchlist' ? 'Watchlist'
-                                    : activeFeature.name === 'orbit-plot' ? activeFeature.props.title
-                                        : null
+                                    : activeFeature.name === 'satellite-photos' ? 'Satellite Photos'
+                                        : activeFeature.name === 'orbit-plot' ? activeFeature.props.title
+                                            : null
     ) : null;
 
     return (
@@ -1277,6 +1316,7 @@ export const ArcGlobe: React.FC = () => {
                     setShowColorSchemes(false);
                     setShowTakePhoto(false);
                     setShowWatchlist(false);
+                    setShowSatellitePhotos(false);
                     setOrbitPlotState(null);
                     setSelectedFeature(null);
                 }}
