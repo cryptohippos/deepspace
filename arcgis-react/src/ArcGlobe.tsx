@@ -1,3 +1,132 @@
+interface SatcatRecord {
+    OBJECT_TYPE?: string;
+    OWNER?: string | null;
+    OPS_STATUS_CODE?: string | null;
+    DATA_STATUS_CODE?: string | null;
+}
+
+const SATCAT_HEADERS = {
+    NORAD: 'NORAD_CAT_ID',
+    OBJECT_TYPE: 'OBJECT_TYPE',
+    OWNER: 'OWNER',
+    OPS_STATUS: 'OPS_STATUS_CODE',
+    DATA_STATUS: 'DATA_STATUS_CODE'
+} as const;
+
+const buildSatcatLookup = async (): Promise<Map<string, SatcatRecord>> => {
+    try {
+        const response = await fetch('/api-keeptrack/v3/satcat/latest', { cache: 'no-cache' });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        const csv = await response.text();
+        return parseSatcatCsv(csv);
+    } catch (error) {
+        console.warn('ArcGlobe: Failed to load SATCAT metadata', error);
+        return new Map();
+    }
+};
+
+const parseSatcatCsv = (csv: string): Map<string, SatcatRecord> => {
+    const map = new Map<string, SatcatRecord>();
+    if (!csv) {
+        return map;
+    }
+    const rows = tokenizeCsv(csv);
+    if (!rows.length) {
+        return map;
+    }
+    const headers = rows.shift() ?? [];
+    const headerIndex = (name: string) => headers.findIndex((h) => h.toUpperCase() === name);
+    const noradIdx = headerIndex(SATCAT_HEADERS.NORAD);
+    if (noradIdx === -1) {
+        return map;
+    }
+    const objectTypeIdx = headerIndex(SATCAT_HEADERS.OBJECT_TYPE);
+    const ownerIdx = headerIndex(SATCAT_HEADERS.OWNER);
+    const opsStatusIdx = headerIndex(SATCAT_HEADERS.OPS_STATUS);
+    const dataStatusIdx = headerIndex(SATCAT_HEADERS.DATA_STATUS);
+
+    for (const row of rows) {
+        if (!row.length) continue;
+        const noradRaw = row[noradIdx]?.trim();
+        if (!noradRaw) continue;
+
+        const record: SatcatRecord = {
+            OBJECT_TYPE: objectTypeIdx >= 0 ? row[objectTypeIdx]?.trim() ?? undefined : undefined,
+            OWNER: ownerIdx >= 0 ? row[ownerIdx]?.trim() ?? null : null,
+            OPS_STATUS_CODE: opsStatusIdx >= 0 ? row[opsStatusIdx]?.trim() ?? null : null,
+            DATA_STATUS_CODE: dataStatusIdx >= 0 ? row[dataStatusIdx]?.trim() ?? null : null
+        };
+
+        registerSatcatEntry(map, noradRaw, record);
+    }
+    return map;
+};
+
+const tokenizeCsv = (input: string): string[][] => {
+    const rows: string[][] = [];
+    if (!input) {
+        return rows;
+    }
+    let row: string[] = [];
+    let field = '';
+    let inQuotes = false;
+    const len = input.length;
+    for (let i = 0; i < len; i++) {
+        const char = input[i];
+        if (char === '"') {
+            if (inQuotes && input[i + 1] === '"') {
+                field += '"';
+                i++;
+            } else {
+                inQuotes = !inQuotes;
+            }
+        } else if (char === ',' && !inQuotes) {
+            row.push(field);
+            field = '';
+        } else if ((char === '\n' || char === '\r') && !inQuotes) {
+            if (char === '\r' && input[i + 1] === '\n') {
+                i++;
+            }
+            row.push(field);
+            rows.push(row);
+            row = [];
+            field = '';
+        } else {
+            field += char;
+        }
+    }
+    if (field.length || row.length) {
+        row.push(field);
+        rows.push(row);
+    }
+    return rows;
+};
+
+const registerSatcatEntry = (map: Map<string, SatcatRecord>, id: string, entry: SatcatRecord) => {
+    const trimmed = id.trim();
+    if (!trimmed) return;
+    const variations = new Set<string>([
+        trimmed,
+        trimmed.padStart(5, '0'),
+        trimmed.padStart(6, '0'),
+        trimmed.replace(/^0+/, '')
+    ]);
+    for (const variant of variations) {
+        if (variant) {
+            map.set(variant, entry);
+        }
+    }
+};
+
+const getSatcatEntry = (map: Map<string, SatcatRecord>, id: string | undefined): SatcatRecord | undefined => {
+    if (!id) return undefined;
+    const trimmed = id.trim();
+    if (!trimmed) return undefined;
+    return map.get(trimmed) || map.get(trimmed.replace(/^0+/, '')) || map.get(trimmed.padStart(5, '0')) || map.get(trimmed.padStart(6, '0'));
+};
+
 import React, { useEffect, useRef, useState } from 'react';
 import '~/styles/ArcGlobe.css';
 import { FeatureHost, type ActiveFeature } from './components/features';
@@ -10,6 +139,7 @@ import { Header } from './components/header';
 import type { FilterCriteria } from './components/header/FilterPanel';
 import { createResetViewHandler } from './components/header/ResetView';
 import { SelectedObjectPanel } from './components/selected/SelectedObjectPanel';
+import { colorSchemeService } from './services/colorSchemeService';
 import { orbitPlotService } from './services/orbitPlotService';
 import { SatelliteService, type SatelliteData } from './services/satelliteService';
 import { TooltipService } from './services/tooltipService';
@@ -40,6 +170,7 @@ export const ArcGlobe: React.FC = () => {
     const [showCreateSatellite, setShowCreateSatellite] = useState(false);
     const [showConstellationAnalysis, setShowConstellationAnalysis] = useState(false);
     const [showDebrisScanner, setShowDebrisScanner] = useState(false);
+    const [showColorSchemes, setShowColorSchemes] = useState(false);
 
     const [filterPanelVisible, setFilterPanelVisible] = useState(false);
     const [selectedSatellite, setSelectedSatellite] = useState<SatelliteData | null>(null);
@@ -73,6 +204,7 @@ export const ArcGlobe: React.FC = () => {
         setShowConstellationAnalysis,
         setShowDebrisScanner,
         setShowCreateSatellite,
+        setShowColorSchemes,
         setSelectedFeature,
         onSelectedSatelliteChange: clearSelectedSatellite
     });
@@ -127,6 +259,7 @@ export const ArcGlobe: React.FC = () => {
         try {
             const newSatellite = satelliteService.createSatellite(satelliteData);
             console.log('Satellite created successfully:', newSatellite);
+            colorSchemeService.updateMetadata(satelliteService.getAllSatellites());
 
             trackGraphicsRef.current.forEach((graphic) => {
                 tracksLayerRef.current?.remove?.(graphic);
@@ -194,29 +327,32 @@ export const ArcGlobe: React.FC = () => {
                 ? { name: 'constellation', props: { onClose: () => handleCloseConstellationAnalysis(), onConstellationSelect: handleConstellationSelect, onConstellationHighlight: handleConstellationHighlight } }
                 : showDebrisScanner
                     ? { name: 'debris-scanner', props: { onClose: () => handleCloseDebrisScanner(), getInstancedApi: () => instancedApiRef.current, satelliteService } }
-                    : orbitPlotState
-                        ? {
-                            name: 'orbit-plot',
-                            props: {
-                                onClose: handleCloseOrbitPlot,
-                                mode: orbitPlotState.mode,
-                                worker: workerRef.current,
-                                satelliteIds: orbitPlotState.satellites,
-                                title: orbitPlotState.title,
-                                data: orbitPlotState.series,
-                                loading: orbitPlotState.isLoading,
-                                error: orbitPlotState.error
+                    : showColorSchemes
+                        ? { name: 'color-schemes', props: { onClose: () => handleCloseColorSchemes() } }
+                        : orbitPlotState
+                            ? {
+                                name: 'orbit-plot',
+                                props: {
+                                    onClose: handleCloseOrbitPlot,
+                                    mode: orbitPlotState.mode,
+                                    worker: workerRef.current,
+                                    satelliteIds: orbitPlotState.satellites,
+                                    title: orbitPlotState.title,
+                                    data: orbitPlotState.series,
+                                    loading: orbitPlotState.isLoading,
+                                    error: orbitPlotState.error
+                                }
                             }
-                        }
-                        : null;
+                            : null;
 
     const activeFeatureTitle = activeFeature ? (
         activeFeature.name === 'collision' ? 'Collision Analysis'
             : activeFeature.name === 'create-satellite' ? 'Create Satellite'
                 : activeFeature.name === 'constellation' ? 'Constellation Analysis'
                     : activeFeature.name === 'debris-scanner' ? 'Debris Scanner'
-                        : activeFeature.name === 'orbit-plot' ? activeFeature.props.title
-                            : null
+                        : activeFeature.name === 'color-schemes' ? 'Color Schemes'
+                            : activeFeature.name === 'orbit-plot' ? activeFeature.props.title
+                                : null
     ) : null;
 
     // Feature handlers
@@ -226,15 +362,25 @@ export const ArcGlobe: React.FC = () => {
         switch (feature) {
             case 'collision':
                 setShowCollisionAnalysis(true);
+                setShowColorSchemes(false);
                 clearSelectedSatellite();
                 break;
             case 'constellation':
                 setShowConstellationAnalysis(true);
+                setShowColorSchemes(false);
                 clearSelectedSatellite();
                 break;
             case 'create-satellite':
                 setShowCreateSatellite(true);
+                setShowColorSchemes(false);
                 clearSelectedSatellite();
+                break;
+            case 'color-schemes':
+                setShowCollisionAnalysis(false);
+                setShowConstellationAnalysis(false);
+                setShowDebrisScanner(false);
+                setShowCreateSatellite(false);
+                setShowColorSchemes(true);
                 break;
             case 'new-launch':
                 // TODO: Implement new launch
@@ -246,13 +392,16 @@ export const ArcGlobe: React.FC = () => {
                 break;
             case 'debris-scanner':
                 setShowDebrisScanner(true);
+                setShowColorSchemes(false);
                 clearSelectedSatellite();
                 break;
             case 'eci-plot':
                 handleOpenOrbitPlot('eci');
+                setShowColorSchemes(false);
                 break;
             case 'ecf-plot':
                 handleOpenOrbitPlot('ecf');
+                setShowColorSchemes(false);
                 break;
             default:
                 break;
@@ -293,6 +442,11 @@ export const ArcGlobe: React.FC = () => {
 
     const handleCloseDebrisScanner = () => {
         setShowDebrisScanner(false);
+        setSelectedFeature(null);
+    };
+
+    const handleCloseColorSchemes = () => {
+        setShowColorSchemes(false);
         setSelectedFeature(null);
     };
 
@@ -472,6 +626,11 @@ export const ArcGlobe: React.FC = () => {
                         try {
                             instancedApi = (window as any).ArcgisInstanced.create(view, {});
                             instancedApiRef.current = instancedApi;
+                            try {
+                                instancedApi?.setBaseColors?.(colorSchemeService.getColorBuffer());
+                            } catch (error) {
+                                console.warn('ArcGlobe: Unable to push initial color buffer to renderer', error);
+                            }
 
                             // Add event handlers after API is ready
                             view.on('click', (evt: any) => {
@@ -614,6 +773,18 @@ export const ArcGlobe: React.FC = () => {
                             return undefined;
                         };
 
+                        const normalizeObjectType = (value: string | undefined): string | undefined => {
+                            if (!value) return undefined;
+                            const maybe = value.toString().trim();
+                            if (!maybe) return undefined;
+                            if (maybe.toLowerCase() === 'null' || maybe.toLowerCase() === 'undefined') {
+                                return undefined;
+                            }
+                            return maybe.toUpperCase();
+                        };
+
+                        const satcatLookup = await buildSatcatLookup();
+
                         const satelliteData: SatelliteData[] = metaRef.map((s: any, idx: number) => {
                             const noradId = (() => {
                                 const direct = pickString(
@@ -639,6 +810,8 @@ export const ArcGlobe: React.FC = () => {
                                 }
                                 return 'N/A';
                             })();
+
+                            const satcatEntry = getSatcatEntry(satcatLookup, noradId);
 
                             const name = pickString(
                                 s.name,
@@ -684,6 +857,28 @@ export const ArcGlobe: React.FC = () => {
                                 s.DEP_DATE
                             );
 
+                            const objectType = normalizeObjectType(
+                                pickString(
+                                    s.objectType,
+                                    s.object_type,
+                                    s.OBJECT_TYPE,
+                                    s.category,
+                                    s.CATEGORY,
+                                    s.type,
+                                    s.TYPE
+                                ) ?? satcatEntry?.OBJECT_TYPE
+                            ) || 'UNKNOWN';
+
+                            const upperObjectType = objectType.toUpperCase();
+                            const typeCode = (() => {
+                                if (upperObjectType.includes('PAYLOAD') || upperObjectType === 'PAY') return 1;
+                                if (upperObjectType.includes('ROCKET') || upperObjectType === 'R/B' || upperObjectType === 'RB') return 2;
+                                if (upperObjectType.includes('DEBRIS') || upperObjectType === 'DEB') return 3;
+                                if (upperObjectType.includes('SPECIAL')) return 4;
+                                if (upperObjectType.includes('UNKNOWN') || upperObjectType === 'UNK') return 5;
+                                return 0;
+                            })();
+
                             return {
                                 id: typeof s.id === 'number' ? s.id : idx,
                                 name,
@@ -691,10 +886,14 @@ export const ArcGlobe: React.FC = () => {
                                 tle2: s.tle2,
                                 norad: noradId,
                                 launchDate: launchDate || new Date().toISOString(),
-                                country,
-                                type: 1,
+                                country: satcatEntry?.OWNER ?? country,
+                                type: typeCode,
                                 source: s.source || 'Unknown',
-                                isUserCreated: false
+                                isUserCreated: false,
+                                objectType,
+                                owner: satcatEntry?.OWNER ?? country,
+                                opsStatus: satcatEntry?.OPS_STATUS_CODE ?? null,
+                                dataStatus: satcatEntry?.DATA_STATUS_CODE ?? null
                             };
                         });
 
@@ -739,6 +938,7 @@ export const ArcGlobe: React.FC = () => {
 
                             // Initialize satellite service
                             satelliteService.initialize(satelliteData, worker);
+                            colorSchemeService.initialize(satelliteData);
                         }
 
                         if (worker) {
@@ -850,6 +1050,20 @@ export const ArcGlobe: React.FC = () => {
         })
     ), []);
 
+    useEffect(() => {
+        const unsubscribe = colorSchemeService.subscribe(({ buffer }) => {
+            const instancedApi = instancedApiRef.current;
+            if (instancedApi?.setBaseColors) {
+                try {
+                    instancedApi.setBaseColors(buffer);
+                } catch (error) {
+                    console.warn('ArcGlobe: Failed to push color buffer to renderer', error);
+                }
+            }
+        });
+        return unsubscribe;
+    }, []);
+
     const handleOpenOrbitPlot = (mode: OrbitPlotMode) => {
         const selectedIds = selectedIdRef.current !== null
             ? [selectedIdRef.current]
@@ -925,6 +1139,7 @@ export const ArcGlobe: React.FC = () => {
                     setShowCreateSatellite(false);
                     setShowConstellationAnalysis(false);
                     setShowDebrisScanner(false);
+                    setShowColorSchemes(false);
                     setOrbitPlotState(null);
                     setSelectedFeature(null);
                 }}

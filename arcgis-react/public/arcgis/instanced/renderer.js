@@ -13,6 +13,7 @@
     const VS = `#version 300 es
     layout(location=0) in vec3 aLonLatH; // degrees, degrees, meters
     layout(location=1) in float aVisibility;
+    layout(location=2) in vec4 aColor;
     uniform mat4 uView;
     uniform mat4 uProj;
     uniform float uBaseSize;
@@ -29,6 +30,7 @@
     out float vIsSelected;
     out float vIsHighlighted;
     out float vVisibility;
+    out vec4 vBaseColor;
 
     // WGS84 constants
     const float a = 6378137.0;
@@ -57,6 +59,7 @@
         vIsSelected = float(gl_InstanceID == uSelectedId ? 1.0 : 0.0);
         vIsHighlighted = float(gl_InstanceID == uHighlightedId ? 1.0 : 0.0);
         vVisibility = aVisibility;
+        vBaseColor = aColor;
         
         // Distance-based sizing with larger size for selected satellite and user-created satellites
         float dist = length(ecef - uCameraECEF);
@@ -75,6 +78,7 @@
     in float vIsSelected;
     in float vIsHighlighted;
     in float vVisibility;
+    in vec4 vBaseColor;
     uniform vec3 uHighlightColor;
     uniform int uHideNonHighlighted;
     out vec4 outColor;
@@ -89,7 +93,7 @@
             discard;
         }
 
-        vec4 baseColor;
+        vec4 baseColor = vBaseColor;
         float alphaMultiplier = 1.0;
         bool hideMode = (uHideNonHighlighted == 1);
 
@@ -106,12 +110,9 @@
             baseColor = vec4(uHighlightColor, 1.0);
             alphaMultiplier = 1.1;
         } else if (vInstanceId >= 30000.0) {
-            // User-created satellites: bright cyan and larger
-            baseColor = vec4(0.0, 1.0, 1.0, 1.0);
-            alphaMultiplier = 1.5;
-        } else {
-            // Normal satellite: yellow
-            baseColor = vec4(1.0, 0.8, 0.1, 1.0);
+            // User-created satellites: boost vibrancy
+            baseColor = vec4(max(vBaseColor.rgb, vec3(0.0, 0.8, 0.9)), vBaseColor.a);
+            alphaMultiplier = 1.3;
         }
         
         outColor = vec4(baseColor.rgb, baseColor.a * alpha * alphaMultiplier);
@@ -143,7 +144,15 @@
         if (!isWebGL2) { console.warn('Instanced renderer requires WebGL2.'); }
 
         const program = createProgram(gl, VS, FS);
-        if (!program) return { updatePositions: function () { }, draw: function () { }, dispose: function () { } };
+        if (!program) {
+            return {
+                updatePositions: function () { },
+                updatePV: function () { },
+                draw: function () { },
+                dispose: function () { },
+                setBaseColors: function () { }
+            };
+        }
 
         const uViewLoc = gl.getUniformLocation(program, 'uView');
         const uProjLoc = gl.getUniformLocation(program, 'uProj');
@@ -180,6 +189,12 @@
         gl.vertexAttribPointer(1, 1, gl.FLOAT, false, 4, 0);
         gl.vertexAttribDivisor(1, 1);
 
+        const colorBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+        gl.enableVertexAttribArray(2);
+        gl.vertexAttribPointer(2, 4, gl.FLOAT, false, 16, 0);
+        gl.vertexAttribDivisor(2, 1);
+
         gl.bindVertexArray(null);
 
         const state = {
@@ -188,6 +203,7 @@
             vao: vao,
             instanceBuffer: instanceBuffer,
             visibilityBuffer: visibilityBuffer,
+            colorBuffer: colorBuffer,
             count: 0,
             visibleCount: 0,
             baseSize: (options && options.baseSize) || 9.0,
@@ -209,7 +225,11 @@
             positionsECEF: null,
             velocitiesECEF: null,
             lastViewMatrix: null,
-            lastProjectionMatrix: null
+            lastProjectionMatrix: null,
+            colorData: null,
+            colorPackedBuffer: null,
+            colorNeedsUpload: true,
+            prevColorCount: 0
         };
 
         function ensureCapacity(n) {
@@ -217,6 +237,8 @@
             if (!state.frontBuffer || state.frontBuffer.byteLength !== bytes) { state.frontBuffer = new ArrayBuffer(bytes); }
             if (!state.backBuffer || state.backBuffer.byteLength !== bytes) { state.backBuffer = new ArrayBuffer(bytes); }
             if (!state.packedBuffer || state.packedBuffer.byteLength < bytes) { state.packedBuffer = new ArrayBuffer(bytes); }
+            const colorBytes = n * 4 * 4;
+            if (!state.colorPackedBuffer || state.colorPackedBuffer.byteLength < colorBytes) { state.colorPackedBuffer = new ArrayBuffer(colorBytes); }
             const visLen = Math.max(n, state.visibility ? state.visibility.length : 0);
             if (!state.visibility || state.visibility.length !== visLen) {
                 const vis = new Float32Array(visLen);
@@ -229,6 +251,7 @@
             if (!state.visibilityPacked || state.visibilityPacked.length !== visLen) {
                 state.visibilityPacked = new Float32Array(visLen);
             }
+            state.colorNeedsUpload = true;
         }
 
         function updatePositions(buffer, count) {
@@ -250,6 +273,20 @@
             state.positionsECEF = posBuf instanceof Float32Array ? posBuf : new Float32Array(posBuf);
             state.velocitiesECEF = velBuf instanceof Float32Array ? velBuf : new Float32Array(velBuf);
             return updatePositions(posBuf, count);
+        }
+
+        function setBaseColors(colors) {
+            if (state.disposed) return;
+            if (colors instanceof Float32Array) {
+                state.colorData = colors;
+            } else if (colors instanceof ArrayBuffer) {
+                state.colorData = new Float32Array(colors);
+            } else if (colors && typeof colors.length === 'number') {
+                state.colorData = new Float32Array(colors);
+            } else {
+                state.colorData = null;
+            }
+            state.colorNeedsUpload = true;
         }
 
         function uploadIfNeeded(params) {
@@ -275,6 +312,31 @@
                 visDst.fill(1, 0, visible);
             }
             state.visibleCount = visible;
+
+            if (state.prevColorCount !== visible) {
+                state.prevColorCount = visible;
+                state.colorNeedsUpload = true;
+            }
+
+            if (state.colorBuffer && state.colorPackedBuffer && visible > 0 && state.colorNeedsUpload) {
+                const colorDst = new Float32Array(state.colorPackedBuffer, 0, visible * 4);
+                const sourceColors = state.colorData;
+                if (sourceColors && sourceColors.length >= visible * 4) {
+                    colorDst.set(sourceColors.subarray(0, visible * 4));
+                } else {
+                    for (let i = 0; i < visible; i++) {
+                        const offset = i * 4;
+                        colorDst[offset] = 1.0;
+                        colorDst[offset + 1] = 0.8;
+                        colorDst[offset + 2] = 0.1;
+                        colorDst[offset + 3] = 1.0;
+                    }
+                }
+                const gl = state.gl;
+                gl.bindBuffer(gl.ARRAY_BUFFER, state.colorBuffer);
+                gl.bufferData(gl.ARRAY_BUFFER, colorDst, gl.DYNAMIC_DRAW);
+                state.colorNeedsUpload = false;
+            }
 
             const gl = state.gl;
             gl.bindBuffer(gl.ARRAY_BUFFER, state.instanceBuffer);
@@ -392,6 +454,7 @@
             try { gl.deleteVertexArray(vao); } catch (e) { }
             try { gl.deleteProgram(program); } catch (e) { }
             try { gl.deleteBuffer(state.visibilityBuffer); } catch (e) { }
+            try { gl.deleteBuffer(state.colorBuffer); } catch (e) { }
         }
 
         function updatePV(posBuf, _velBuf, count) {
@@ -527,6 +590,7 @@
             getSelectedId,
             setSearchBox,
             getPositionSnapshot,
+            setBaseColors,
             dispose
         };
     }
