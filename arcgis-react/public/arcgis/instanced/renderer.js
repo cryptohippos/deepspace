@@ -14,6 +14,7 @@
     layout(location=0) in vec3 aLonLatH; // degrees, degrees, meters
     layout(location=1) in float aVisibility;
     layout(location=2) in vec4 aColor;
+    layout(location=3) in float aWatchlist;
     uniform mat4 uView;
     uniform mat4 uProj;
     uniform float uBaseSize;
@@ -25,12 +26,14 @@
     uniform vec3 uHighlightColor;
     uniform int uHighlightedId;
     uniform int uHideNonHighlighted;
+    uniform vec3 uWatchlistColor;
 
     out float vInstanceId;
     out float vIsSelected;
     out float vIsHighlighted;
     out float vVisibility;
     out vec4 vBaseColor;
+    out float vWatchlist;
 
     // WGS84 constants
     const float a = 6378137.0;
@@ -60,6 +63,7 @@
         vIsHighlighted = float(gl_InstanceID == uHighlightedId ? 1.0 : 0.0);
         vVisibility = aVisibility;
         vBaseColor = aColor;
+        vWatchlist = aWatchlist;
         
         // Distance-based sizing with larger size for selected satellite and user-created satellites
         float dist = length(ecef - uCameraECEF);
@@ -79,7 +83,9 @@
     in float vIsHighlighted;
     in float vVisibility;
     in vec4 vBaseColor;
+    in float vWatchlist;
     uniform vec3 uHighlightColor;
+    uniform vec3 uWatchlistColor;
     uniform int uHideNonHighlighted;
     out vec4 outColor;
     void main(){
@@ -109,6 +115,9 @@
             // When filtering is active, color visible satellites with highlight color
             baseColor = vec4(uHighlightColor, 1.0);
             alphaMultiplier = 1.1;
+        } else if (vWatchlist > 0.5) {
+            baseColor = vec4(uWatchlistColor, 1.0);
+            alphaMultiplier = max(alphaMultiplier, 1.25);
         } else if (vInstanceId >= 30000.0) {
             // User-created satellites: boost vibrancy
             baseColor = vec4(max(vBaseColor.rgb, vec3(0.0, 0.8, 0.9)), vBaseColor.a);
@@ -165,6 +174,7 @@
         const uHighlightedIdLoc = gl.getUniformLocation(program, 'uHighlightedId');
         const uHighlightColorLoc = gl.getUniformLocation(program, 'uHighlightColor');
         const uHideNonHighlightedLoc = gl.getUniformLocation(program, 'uHideNonHighlighted');
+        const uWatchlistColorLoc = gl.getUniformLocation(program, 'uWatchlistColor');
 
 
         const vao = gl.createVertexArray();
@@ -195,6 +205,12 @@
         gl.vertexAttribPointer(2, 4, gl.FLOAT, false, 16, 0);
         gl.vertexAttribDivisor(2, 1);
 
+        const watchlistBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, watchlistBuffer);
+        gl.enableVertexAttribArray(3);
+        gl.vertexAttribPointer(3, 1, gl.FLOAT, false, 4, 0);
+        gl.vertexAttribDivisor(3, 1);
+
         gl.bindVertexArray(null);
 
         const state = {
@@ -204,6 +220,7 @@
             instanceBuffer: instanceBuffer,
             visibilityBuffer: visibilityBuffer,
             colorBuffer: colorBuffer,
+            watchlistBuffer: watchlistBuffer,
             count: 0,
             visibleCount: 0,
             baseSize: (options && options.baseSize) || 9.0,
@@ -216,6 +233,7 @@
             highlightedId: -1, // -1 means no highlight
             highlightColor: [1.0, 0.5, 0.0], // Default highlight color (orange)
             hideNonHighlighted: false, // Whether to hide non-highlighted objects
+            watchlistColor: [0.32, 0.86, 1.0],
             disposed: false,
             frontBuffer: null,
             backBuffer: null,
@@ -229,7 +247,11 @@
             colorData: null,
             colorPackedBuffer: null,
             colorNeedsUpload: true,
-            prevColorCount: 0
+            prevColorCount: 0,
+            watchlistData: null,
+            watchlistPacked: null,
+            watchlistNeedsUpload: true,
+            prevWatchlistCount: 0
         };
 
         function ensureCapacity(n) {
@@ -250,6 +272,10 @@
             }
             if (!state.visibilityPacked || state.visibilityPacked.length !== visLen) {
                 state.visibilityPacked = new Float32Array(visLen);
+            }
+            if (!state.watchlistPacked || state.watchlistPacked.length !== visLen) {
+                state.watchlistPacked = new Float32Array(visLen);
+                state.watchlistNeedsUpload = true;
             }
             state.colorNeedsUpload = true;
         }
@@ -291,6 +317,8 @@
 
         function uploadIfNeeded(params) {
             if (state.count <= 0) return;
+            const gl = state.gl;
+            if (!gl) return;
             // swap front/back
             const tmp = state.frontBuffer; state.frontBuffer = state.backBuffer; state.backBuffer = tmp;
             const src = new Float32Array(state.frontBuffer);
@@ -317,6 +345,10 @@
                 state.prevColorCount = visible;
                 state.colorNeedsUpload = true;
             }
+            if (state.prevWatchlistCount !== visible) {
+                state.prevWatchlistCount = visible;
+                state.watchlistNeedsUpload = true;
+            }
 
             if (state.colorBuffer && state.colorPackedBuffer && visible > 0 && state.colorNeedsUpload) {
                 const colorDst = new Float32Array(state.colorPackedBuffer, 0, visible * 4);
@@ -332,19 +364,48 @@
                         colorDst[offset + 3] = 1.0;
                     }
                 }
-                const gl = state.gl;
                 gl.bindBuffer(gl.ARRAY_BUFFER, state.colorBuffer);
                 gl.bufferData(gl.ARRAY_BUFFER, colorDst, gl.DYNAMIC_DRAW);
                 state.colorNeedsUpload = false;
             }
 
-            const gl = state.gl;
+            if (state.watchlistBuffer && state.watchlistPacked && visible > 0 && state.watchlistNeedsUpload) {
+                const watchlistDst = state.watchlistPacked;
+                const sourceFlags = state.watchlistData;
+                if (sourceFlags && sourceFlags.length >= visible) {
+                    watchlistDst.set(sourceFlags.subarray(0, visible));
+                } else {
+                    watchlistDst.fill(0, 0, visible);
+                }
+                gl.bindBuffer(gl.ARRAY_BUFFER, state.watchlistBuffer);
+                gl.bufferData(gl.ARRAY_BUFFER, watchlistDst.subarray(0, visible), gl.DYNAMIC_DRAW);
+                state.watchlistNeedsUpload = false;
+            }
+
             gl.bindBuffer(gl.ARRAY_BUFFER, state.instanceBuffer);
             gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(state.packedBuffer, 0, state.visibleCount * 3), gl.DYNAMIC_DRAW);
             if (state.visibilityBuffer && state.visibilityPacked) {
                 gl.bindBuffer(gl.ARRAY_BUFFER, state.visibilityBuffer);
                 gl.bufferData(gl.ARRAY_BUFFER, state.visibilityPacked.subarray(0, state.visibleCount), gl.DYNAMIC_DRAW);
             }
+        }
+
+        function getLonLatHeight(index) {
+            if (state.disposed) return null;
+            if (typeof index !== 'number' || index < 0 || index >= state.count) {
+                return null;
+            }
+            const buffer = state.frontBuffer || state.backBuffer;
+            if (!buffer) {
+                return null;
+            }
+            const src = new Float32Array(buffer);
+            const offset = index * 3;
+            return [
+                src[offset],
+                src[offset + 1],
+                src[offset + 2]
+            ];
         }
 
         function draw(params, count) {
@@ -373,6 +434,7 @@
             gl.uniform1i(uHighlightedIdLoc, state.highlightedId || -1);
             gl.uniform3fv(uHighlightColorLoc, new Float32Array(state.highlightColor));
             gl.uniform1i(uHideNonHighlightedLoc, state.hideNonHighlighted ? 1 : 0);
+            gl.uniform3fv(uWatchlistColorLoc, new Float32Array(state.watchlistColor));
 
             if (DEBUG) {
                 console.log('Renderer state:', {
@@ -455,6 +517,7 @@
             try { gl.deleteProgram(program); } catch (e) { }
             try { gl.deleteBuffer(state.visibilityBuffer); } catch (e) { }
             try { gl.deleteBuffer(state.colorBuffer); } catch (e) { }
+            try { gl.deleteBuffer(state.watchlistBuffer); } catch (e) { }
         }
 
         function updatePV(posBuf, _velBuf, count) {
@@ -476,8 +539,8 @@
             }
             // If highlighting a single satellite without filtering others, make it bigger without shader changes
             if (!state.hideNonHighlighted && state.highlightedId !== -1) {
-                state.baseSize = state.baseSizeDefault * 10.0;
-                state.maxSize = state.maxSizeDefault * 10.0;
+                state.baseSize = state.baseSizeDefault * 3.0;
+                state.maxSize = state.maxSizeDefault * 3.0;
             } else if (state.highlightedId === -1 && !state.hideNonHighlighted) {
                 state.baseSize = state.baseSizeDefault;
                 state.maxSize = state.maxSizeDefault;
@@ -485,6 +548,20 @@
             if (DEBUG) {
                 console.log('setHighlightedSatellite:', { id, color, hideOthers, state: { highlightedId: state.highlightedId, hideNonHighlighted: state.hideNonHighlighted } });
             }
+        }
+
+        function setWatchlistFlags(flags) {
+            if (state.disposed) return;
+            if (flags instanceof Float32Array) {
+                state.watchlistData = flags;
+            } else if (Array.isArray(flags)) {
+                state.watchlistData = new Float32Array(flags);
+            } else if (flags instanceof ArrayBuffer) {
+                state.watchlistData = new Float32Array(flags);
+            } else {
+                state.watchlistData = null;
+            }
+            state.watchlistNeedsUpload = true;
         }
 
         function setVisibleSatellites(ids, color) {
@@ -577,6 +654,53 @@
             return { count, positions, velocities };
         }
 
+        function capture(params) {
+            if (state.disposed || !state.gl) {
+                return null;
+            }
+            const gl = state.gl;
+            const bufferWidth = gl.drawingBufferWidth | 0;
+            const bufferHeight = gl.drawingBufferHeight | 0;
+            if (!bufferWidth || !bufferHeight) {
+                return null;
+            }
+
+            try {
+                gl.finish?.();
+            } catch (e) { if (DEBUG) console.warn('capture finish failed', e); }
+
+            const pixels = new Uint8Array(bufferWidth * bufferHeight * 4);
+            gl.readPixels(0, 0, bufferWidth, bufferHeight, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+
+            const rowSize = bufferWidth * 4;
+            const tempRow = new Uint8Array(rowSize);
+            for (let y = 0; y < bufferHeight / 2; y++) {
+                const topOffset = y * rowSize;
+                const bottomOffset = (bufferHeight - y - 1) * rowSize;
+                tempRow.set(pixels.subarray(topOffset, topOffset + rowSize));
+                pixels.copyWithin(topOffset, bottomOffset, bottomOffset + rowSize);
+                pixels.set(tempRow, bottomOffset);
+            }
+
+            const canvas = document.createElement('canvas');
+            canvas.width = bufferWidth;
+            canvas.height = bufferHeight;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+                return null;
+            }
+
+            const imageData = ctx.createImageData(bufferWidth, bufferHeight);
+            imageData.data.set(pixels);
+            ctx.putImageData(imageData, 0, 0);
+
+            return {
+                dataUrl: canvas.toDataURL('image/png'),
+                width: bufferWidth,
+                height: bufferHeight
+            };
+        }
+
 
         return {
             updatePositions,
@@ -591,6 +715,9 @@
             setSearchBox,
             getPositionSnapshot,
             setBaseColors,
+            setWatchlistFlags,
+            getLonLatHeight,
+            capture,
             dispose
         };
     }

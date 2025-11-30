@@ -120,6 +120,17 @@
                     try { require(['esri/views/3d/externalRenderers'], function (externalRenderers) { externalRenderers.requestRender(view); }); } catch (e) { }
                 }
             },
+            capture: function (params) {
+                if (!state.renderer || typeof state.renderer.capture !== 'function') {
+                    return null;
+                }
+                try {
+                    return state.renderer.capture(params || {});
+                } catch (e) {
+                    if (DEBUG) console.error('capture failed', e);
+                    return null;
+                }
+            },
             setBaseColors: function (buffer) {
                 try {
                     let colors = null;
@@ -143,6 +154,25 @@
                         state.hasColorStash = true;
                     }
                 } catch (e) { if (DEBUG) console.error('setBaseColors failed', e); }
+            },
+            setWatchlistFlags: function (flags) {
+                if (state.renderer && typeof state.renderer.setWatchlistFlags === 'function') {
+                    try {
+                        state.renderer.setWatchlistFlags(flags);
+                    } catch (e) {
+                        if (DEBUG) console.error('setWatchlistFlags failed', e);
+                    }
+                }
+            },
+            getLonLatHeight: function (index) {
+                if (state.renderer && typeof state.renderer.getLonLatHeight === 'function') {
+                    try {
+                        return state.renderer.getLonLatHeight(index);
+                    } catch (e) {
+                        if (DEBUG) console.error('getLonLatHeight failed', e);
+                    }
+                }
+                return null;
             },
             getSelectedId: function () {
                 if (state.renderer && typeof state.renderer.getSelectedId === 'function') {

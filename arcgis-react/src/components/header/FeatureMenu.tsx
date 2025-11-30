@@ -49,10 +49,13 @@ export const FeatureMenu: React.FC<FeatureMenuProps> = ({
             { id: 'collision', name: 'Collision Analysis', icon: '⚠️', description: 'View potential satellite collisions' },
             { id: 'create-satellite', name: 'Create Satellite', icon: '🛰️', description: 'Add new satellite to simulation' },
             { id: 'color-schemes', name: 'Color Schemes', icon: '🎨', description: 'Adjust base colors for satellites' },
+            { id: 'take-photo', name: 'Take Photo', icon: '📸', description: 'Capture a screenshot of the globe' },
             { id: 'test-constellations', name: 'Test Constellations', icon: '🌌', description: 'Analyze satellite constellations' },
             { id: 'new-launch', name: 'New Launch', icon: '🚀', description: 'Simulate satellite launch' }
         ],
         advanced: [
+            { id: 'watchlist', name: 'Watchlist', icon: '⭐', description: 'Monitor priority satellites' },
+            { id: 'satellite-photos', name: 'Satellite Photos', icon: '🖼️', description: 'View latest Earth imagery from satellites' },
             { id: 'create-breakup', name: 'Create Breakup', icon: '💥', description: 'Simulate satellite breakup event' }
         ],
         analysis: [

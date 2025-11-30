@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import type { SatelliteData } from '../../services/satelliteService';
+import { watchlistService, type WatchlistState } from '../../services/watchlistService';
 
 interface SelectedObjectPanelProps {
     satellite: SatelliteData | null;
@@ -167,8 +168,23 @@ export const SelectedObjectPanel: React.FC<SelectedObjectPanelProps> = ({ satell
     const [hasError, setHasError] = useState(false);
     const [hasLoaded, setHasLoaded] = useState(false);
     const [isCollapsed, setIsCollapsed] = useState(false);
+    const [isOnWatchlist, setIsOnWatchlist] = useState(false);
     const imageSrc = useMemo(() => (hasError ? FALLBACK_IMAGE : guessSatelliteImage(satellite)), [hasError, satellite]);
     const attributes = useMemo(() => buildAttributes(satellite), [satellite]);
+
+    useEffect(() => {
+        const satId = satellite?.id;
+        if (satId === undefined || satId === null) {
+            setIsOnWatchlist(false);
+            return;
+        }
+        const handleUpdate = (state: WatchlistState) => {
+            setIsOnWatchlist(state.ids.includes(satId));
+        };
+        handleUpdate(watchlistService.getState());
+        const unsubscribe = watchlistService.subscribe(handleUpdate);
+        return unsubscribe;
+    }, [satellite?.id]);
 
     if (!satellite) {
         return null;
@@ -178,13 +194,30 @@ export const SelectedObjectPanel: React.FC<SelectedObjectPanelProps> = ({ satell
         setIsCollapsed((prev) => !prev);
     };
 
+    const handleToggleWatchlist = () => {
+        if (!satellite) return;
+        const next = watchlistService.toggle(satellite.id);
+        setIsOnWatchlist(next);
+    };
+
     return (
         <div className={`selected-object-panel${isCollapsed ? ' collapsed' : ''}`}>
             <div className="selected-object-header">
                 <span className="selected-object-title">{satellite.name}</span>
-                <button className="selected-object-toggle" onClick={toggleCollapse} type="button" aria-label={isCollapsed ? 'Expand details' : 'Collapse details'}>
-                    {isCollapsed ? 'Expand' : 'Collapse'}
-                </button>
+                <div className="selected-object-actions">
+                    <button
+                        type="button"
+                        className={`selected-object-watchlist${isOnWatchlist ? ' active' : ''}`}
+                        onClick={handleToggleWatchlist}
+                        aria-pressed={isOnWatchlist}
+                        title={isOnWatchlist ? 'Remove from Watchlist' : 'Add to Watchlist'}
+                    >
+                        {isOnWatchlist ? '★ Watchlist' : '☆ Watchlist'}
+                    </button>
+                    <button className="selected-object-toggle" onClick={toggleCollapse} type="button" aria-label={isCollapsed ? 'Expand details' : 'Collapse details'}>
+                        {isCollapsed ? 'Expand' : 'Collapse'}
+                    </button>
+                </div>
             </div>
             {!isCollapsed && (
                 <div className="selected-object-body">

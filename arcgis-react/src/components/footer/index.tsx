@@ -24,6 +24,7 @@ export const Footer: React.FC<FooterProps> = ({ isVisible, title, onClose, child
 
     return (
         <div
+            className="feature-footer"
             style={{
                 position: 'fixed',
                 left: 0,
