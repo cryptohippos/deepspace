@@ -1,0 +1,134 @@
+.sensor-info-panel {
+    display: flex;
+    flex-direction: column;
+    width: 420px;
+    max-height: 70vh;
+    background: rgba(12, 18, 28, 0.96);
+    border-radius: 18px;
+    border: 1px solid rgba(120, 170, 255, 0.22);
+    padding: 24px 24px 28px;
+    color: #f1f6ff;
+    box-shadow: 0 32px 90px rgba(6, 12, 24, 0.65);
+    gap: 20px;
+}
+
+.sensor-info-panel.visible {
+    animation: sensor-info-fade-in 150ms ease-out;
+}
+
+@keyframes sensor-info-fade-in {
+    from {
+        opacity: 0;
+        transform: translateY(12px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.sensor-info-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.sensor-info-header h3 {
+    margin: 0;
+    font-size: 1.15rem;
+    font-weight: 600;
+}
+
+.sensor-info-close {
+    border: none;
+    background: rgba(255, 255, 255, 0.15);
+    color: #ffffff;
+    border-radius: 999px;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.sensor-info-close:hover {
+    background: rgba(255, 255, 255, 0.25);
+}
+
+.sensor-info-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.sensor-info-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px 16px;
+}
+
+.sensor-info-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.sensor-info-label {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #a9c4f2;
+    letter-spacing: 0.04em;
+}
+
+.sensor-info-value {
+    font-size: 0.92rem;
+    font-weight: 500;
+    color: #f0f6ff;
+}
+
+.sensor-info-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.sensor-info-button {
+    border: none;
+    border-radius: 999px;
+    padding: 10px 18px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.15s ease, background 0.2s ease, opacity 0.2s ease;
+    background: rgba(255, 255, 255, 0.14);
+    color: #f1f6ff;
+}
+
+.sensor-info-button:hover {
+    transform: translateY(-1px);
+}
+
+.sensor-info-button.active {
+    background: linear-gradient(135deg, rgba(120, 170, 255, 0.6), rgba(120, 170, 255, 0.85));
+    color: #071022;
+}
+
+.sensor-info-empty {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    color: #a9c4f2;
+    font-size: 0.95rem;
+    padding: 20px;
+}

@@ -1,3 +1,166 @@
+const WGS84_A = 6378137;
+const WGS84_E2 = 6.69437999014e-3;
+const WGS84_B = WGS84_A * Math.sqrt(1 - WGS84_E2);
+
+const deg2rad = (deg: number) => deg * (Math.PI / 180);
+const rad2deg = (rad: number) => rad * (180 / Math.PI);
+
+const geodeticToEcef = (latDeg: number, lonDeg: number, altitudeMeters: number) => {
+    const lat = deg2rad(latDeg);
+    const lon = deg2rad(lonDeg);
+    const cosLat = Math.cos(lat);
+    const sinLat = Math.sin(lat);
+    const cosLon = Math.cos(lon);
+    const sinLon = Math.sin(lon);
+    const N = WGS84_A / Math.sqrt(1 - WGS84_E2 * sinLat * sinLat);
+    const x = (N + altitudeMeters) * cosLat * cosLon;
+    const y = (N + altitudeMeters) * cosLat * sinLon;
+    const z = (N * (1 - WGS84_E2) + altitudeMeters) * sinLat;
+    return { x, y, z };
+};
+
+const ecefToGeodetic = (x: number, y: number, z: number) => {
+    const ep2 = (WGS84_A * WGS84_A - WGS84_B * WGS84_B) / (WGS84_B * WGS84_B);
+    const p = Math.sqrt(x * x + y * y);
+    const theta = Math.atan2(z * WGS84_A, p * WGS84_B);
+    const sinTheta = Math.sin(theta);
+    const cosTheta = Math.cos(theta);
+    const latitude = Math.atan2(z + ep2 * WGS84_B * sinTheta * sinTheta * sinTheta, p - WGS84_E2 * WGS84_A * cosTheta * cosTheta * cosTheta);
+    const longitude = Math.atan2(y, x);
+    const sinLat = Math.sin(latitude);
+    const N = WGS84_A / Math.sqrt(1 - WGS84_E2 * sinLat * sinLat);
+    const height = p / Math.cos(latitude) - N;
+    return {
+        latitude: rad2deg(latitude),
+        longitude: rad2deg(longitude),
+        height
+    };
+};
+
+const SENSOR_TINT = [0.2, 0.45, 0.95] as const;
+
+const normalizeAzimuth = (value: number | null | undefined): number => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+        return 0;
+    }
+    let result = value % 360;
+    if (result < 0) {
+        result += 360;
+    }
+    return result;
+};
+
+interface PreparedSensor {
+    ecefX: number;
+    ecefY: number;
+    ecefZ: number;
+    sinLat: number;
+    cosLat: number;
+    sinLon: number;
+    cosLon: number;
+    minRange: number;
+    maxRange: number;
+    minElRad: number;
+    maxElRad: number;
+    minAz: number;
+    maxAz: number;
+    azWraps: boolean;
+}
+
+const prepareSensor = (sensor: SensorDefinition): PreparedSensor | null => {
+    if (sensor.latitude === null || sensor.longitude === null) {
+        return null;
+    }
+    const altitudeMeters = sensor.altitudeMeters ?? 0;
+    const latitude = sensor.latitude;
+    const longitude = sensor.longitude;
+    const latRad = deg2rad(latitude);
+    const lonRad = deg2rad(longitude);
+    const sinLat = Math.sin(latRad);
+    const cosLat = Math.cos(latRad);
+    const sinLon = Math.sin(lonRad);
+    const cosLon = Math.cos(lonRad);
+    const ecef = geodeticToEcef(latitude, longitude, altitudeMeters);
+    const minRange = Math.max(0, (sensor.minRangeKm ?? 0) * 1000);
+    const maxRangeKm = sensor.maxRangeKm ?? 0;
+    const maxRange = maxRangeKm > 0 ? maxRangeKm * 1000 : Number.POSITIVE_INFINITY;
+    const minEl = deg2rad(sensor.minElevation ?? 0);
+    const maxEl = deg2rad(sensor.maxElevation ?? 90);
+    const minAz = normalizeAzimuth(sensor.minAzimuth);
+    const maxAz = normalizeAzimuth(sensor.maxAzimuth ?? (sensor.minAzimuth ?? 360));
+    return {
+        ecefX: ecef.x,
+        ecefY: ecef.y,
+        ecefZ: ecef.z,
+        sinLat,
+        cosLat,
+        sinLon,
+        cosLon,
+        minRange,
+        maxRange,
+        minElRad: minEl,
+        maxElRad: maxEl,
+        minAz,
+        maxAz,
+        azWraps: maxAz < minAz
+    };
+};
+
+const computeSensorCoverageFlags = (positions: Float32Array, count: number, sensors: SensorDefinition[]): Float32Array => {
+    const prepared = sensors
+        .map(prepareSensor)
+        .filter((entry): entry is PreparedSensor => Boolean(entry));
+
+    const flags = new Float32Array(count);
+    if (!prepared.length || !count) {
+        return flags;
+    }
+
+    for (let i = 0; i < count; i++) {
+        const idx = i * 3;
+        const lon = positions[idx];
+        const lat = positions[idx + 1];
+        const altitude = positions[idx + 2];
+        if (!Number.isFinite(lon) || !Number.isFinite(lat) || !Number.isFinite(altitude)) {
+            continue;
+        }
+        const sat = geodeticToEcef(lat, lon, altitude);
+        for (const sensor of prepared) {
+            const dx = sat.x - sensor.ecefX;
+            const dy = sat.y - sensor.ecefY;
+            const dz = sat.z - sensor.ecefZ;
+            const range = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            if (range < sensor.minRange || range > sensor.maxRange) {
+                continue;
+            }
+
+            const east = -sensor.sinLon * dx + sensor.cosLon * dy;
+            const north = -sensor.sinLat * sensor.cosLon * dx - sensor.sinLat * sensor.sinLon * dy + sensor.cosLat * dz;
+            const up = sensor.cosLat * sensor.cosLon * dx + sensor.cosLat * sensor.sinLon * dy + sensor.sinLat * dz;
+            const horizontal = Math.sqrt(east * east + north * north);
+            const elevation = Math.atan2(up, horizontal);
+            if (elevation < sensor.minElRad || elevation > sensor.maxElRad) {
+                continue;
+            }
+
+            let azimuth = rad2deg(Math.atan2(east, north));
+            if (azimuth < 0) azimuth += 360;
+            if (sensor.azWraps) {
+                if (!(azimuth >= sensor.minAz || azimuth <= sensor.maxAz)) {
+                    continue;
+                }
+            } else if (azimuth < sensor.minAz || azimuth > sensor.maxAz) {
+                continue;
+            }
+
+            flags[i] = 1;
+            break;
+        }
+    }
+
+    return flags;
+};
+
 interface SatcatRecord {
     OBJECT_TYPE?: string;
     OWNER?: string | null;
@@ -127,7 +290,9 @@ const getSatcatEntry = (map: Map<string, SatcatRecord>, id: string | undefined):
     return map.get(trimmed) || map.get(trimmed.replace(/^0+/, '')) || map.get(trimmed.padStart(5, '0')) || map.get(trimmed.padStart(6, '0'));
 };
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import SunCalc from 'suncalc';
+import type { SensorDefinition } from '~/data/sensors';
 import '~/styles/ArcGlobe.css';
 import { FeatureHost, type ActiveFeature } from './components/features';
 import { type CollisionEvent } from './components/features/CollisionAnalysis';
@@ -144,6 +309,7 @@ import { orbitPlotService } from './services/orbitPlotService';
 import { satellitePhotoService } from './services/satellitePhotoService';
 import { SatelliteService, type SatelliteData } from './services/satelliteService';
 import { screenshotService } from './services/screenshotService';
+import { sensorService, type SensorSelection } from './services/sensorService';
 import { TooltipService } from './services/tooltipService';
 import { watchlistService } from './services/watchlistService';
 
@@ -161,9 +327,16 @@ export const ArcGlobe: React.FC = () => {
     const instancedApiRef = useRef<any>(null);
     const viewRef = useRef<__esri.SceneView | null>(null);
     const tracksLayerRef = useRef<__esri.GraphicsLayer | null>(null);
+    const sensorLinesLayerRef = useRef<__esri.GraphicsLayer | null>(null);
     const trackGraphicsRef = useRef<Map<number, __esri.Graphic>>(new Map());
     const selectedIdRef = useRef<number | null>(null);
     const isLoadingRef = useRef(true);
+    const sensorLineGraphicsRef = useRef<{ sun: __esri.Graphic | null; moon: __esri.Graphic | null }>({ sun: null, moon: null });
+    const coverageFlagsRef = useRef<Float32Array | null>(null);
+    const baseColorBufferRef = useRef<Float32Array | null>(null);
+    const tintedColorsRef = useRef<Float32Array | null>(null);
+    const lastPositionsRef = useRef<Float32Array | null>(null);
+    const positionsReadyRef = useRef(false);
     const [isLoading, setIsLoading] = useState(true);
     const satelliteService = SatelliteService.getInstance();
     const tooltipService = TooltipService.getInstance();
@@ -178,6 +351,105 @@ export const ArcGlobe: React.FC = () => {
     const [showTakePhoto, setShowTakePhoto] = useState(false);
     const [showWatchlist, setShowWatchlist] = useState(false);
     const [showSatellitePhotos, setShowSatellitePhotos] = useState(false);
+    const [showSensors, setShowSensors] = useState(false);
+    const [showSensorInfo, setShowSensorInfo] = useState(false);
+    const [sunLineActive, setSunLineActive] = useState(false);
+    const [moonLineActive, setMoonLineActive] = useState(false);
+    const [sensorSelectionState, setSensorSelectionState] = useState<SensorSelection>(() => sensorService.getSelection());
+    const sensorSelectionRef = useRef<SensorSelection>(sensorSelectionState);
+
+    const removeSensorLines = useCallback((target?: 'sun' | 'moon') => {
+        const layer = sensorLinesLayerRef.current;
+        const removeSingle = (kind: 'sun' | 'moon') => {
+            const graphic = sensorLineGraphicsRef.current[kind];
+            if (!graphic) {
+                return;
+            }
+            if (layer) {
+                try {
+                    layer.remove(graphic);
+                } catch {
+                    // ignore
+                }
+            }
+            sensorLineGraphicsRef.current[kind] = null;
+        };
+
+        if (!layer) {
+            sensorLineGraphicsRef.current.sun = null;
+            sensorLineGraphicsRef.current.moon = null;
+            return;
+        }
+        if (target) {
+            removeSingle(target);
+        } else {
+            removeSingle('sun');
+            removeSingle('moon');
+        }
+    }, []);
+    const drawSensorLine = useCallback((kind: 'sun' | 'moon') => {
+        const layer = sensorLinesLayerRef.current;
+        const selection = sensorSelectionRef.current;
+        const primaryId = selection.primaryId ?? selection.sensorIds[0];
+        if (!layer || !primaryId) {
+            return;
+        }
+        const sensor = sensorService.getSensor(primaryId);
+        if (!sensor || sensor.latitude === null || sensor.longitude === null) {
+            return;
+        }
+        const latitude = sensor.latitude;
+        const longitude = sensor.longitude;
+        const altitudeMeters = sensor.altitudeMeters ?? 0;
+        const date = new Date();
+        const position = kind === 'sun' ? SunCalc.getPosition(date, latitude, longitude) : SunCalc.getMoonPosition(date, latitude, longitude);
+        const adjustedAltitude = Math.max(position.altitude, 0.05);
+        const azimuth = (position.azimuth + Math.PI) % (2 * Math.PI);
+        const cosAlt = Math.cos(adjustedAltitude);
+        const xEast = cosAlt * Math.sin(azimuth);
+        const yNorth = cosAlt * Math.cos(azimuth);
+        const zUp = Math.sin(adjustedAltitude);
+        const latRad = deg2rad(latitude);
+        const lonRad = deg2rad(longitude);
+        const sinLat = Math.sin(latRad);
+        const cosLat = Math.cos(latRad);
+        const sinLon = Math.sin(lonRad);
+        const cosLon = Math.cos(lonRad);
+        const dirX = -sinLon * xEast - sinLat * cosLon * yNorth + cosLat * cosLon * zUp;
+        const dirY = cosLon * xEast - sinLat * sinLon * yNorth + cosLat * sinLon * zUp;
+        const dirZ = cosLat * yNorth + sinLat * zUp;
+        const dirLength = Math.hypot(dirX, dirY, dirZ);
+        if (!dirLength) {
+            return;
+        }
+        const { x: baseX, y: baseY, z: baseZ } = geodeticToEcef(latitude, longitude, altitudeMeters);
+        const distanceMeters = kind === 'sun'
+            ? 600000000
+            : Math.min(Math.max((position.distance ?? 384400) * 1000, 200000000), 500000000);
+        const scale = distanceMeters / dirLength;
+        const endEcefX = baseX + dirX * scale;
+        const endEcefY = baseY + dirY * scale;
+        const endEcefZ = baseZ + dirZ * scale;
+        const endGeo = ecefToGeodetic(endEcefX, endEcefY, endEcefZ);
+        const path = [
+            [longitude, latitude, altitudeMeters],
+            [endGeo.longitude, endGeo.latitude, endGeo.height]
+        ];
+        removeSensorLines(kind);
+        const graphic = layer.add({
+            geometry: {
+                type: 'polyline',
+                paths: [path],
+                spatialReference: { wkid: 4326 }
+            },
+            symbol: {
+                type: 'simple-line',
+                color: kind === 'sun' ? [255, 210, 110, 0.9] : [150, 200, 255, 0.9],
+                width: 3
+            }
+        } as __esri.Graphic);
+        sensorLineGraphicsRef.current[kind] = graphic ?? null;
+    }, [removeSensorLines]);
 
     const [filterPanelVisible, setFilterPanelVisible] = useState(false);
     const [selectedSatellite, setSelectedSatellite] = useState<SatelliteData | null>(null);
@@ -210,6 +482,88 @@ export const ArcGlobe: React.FC = () => {
         orbitPlotRequestRef.current = null;
     };
 
+    const applySensorCoverageColors = useCallback((flags: Float32Array | null) => {
+        const instancedApi = instancedApiRef.current;
+        const baseColors = baseColorBufferRef.current ?? colorSchemeService.getColorBuffer();
+        baseColorBufferRef.current = baseColors;
+
+        if (!flags || !flags.length) {
+            tintedColorsRef.current = null;
+            if (instancedApi?.setBaseColors) {
+                instancedApi.setBaseColors(baseColors);
+            }
+            return;
+        }
+
+        const available = Math.floor(baseColors.length / 4);
+        const count = Math.min(flags.length, available);
+        if (count <= 0) {
+            tintedColorsRef.current = null;
+            if (instancedApi?.setBaseColors) {
+                instancedApi.setBaseColors(baseColors);
+            }
+            return;
+        }
+
+        const tinted = new Float32Array(baseColors);
+        for (let i = 0; i < count; i++) {
+            if (flags[i] > 0.5) {
+                const offset = i * 4;
+                tinted[offset] = SENSOR_TINT[0];
+                tinted[offset + 1] = SENSOR_TINT[1];
+                tinted[offset + 2] = SENSOR_TINT[2];
+                tinted[offset + 3] = Math.min(1, tinted[offset + 3] * 1.15);
+            }
+        }
+        tintedColorsRef.current = tinted;
+        if (instancedApi?.setBaseColors) {
+            instancedApi.setBaseColors(tinted);
+        }
+    }, []);
+
+    const recomputeSensorCoverage = useCallback(() => {
+        const positions = lastPositionsRef.current;
+        if (!positions || !positions.length) {
+            return;
+        }
+        const selection = sensorSelectionRef.current;
+        if (!selection || selection.kind === 'none') {
+            coverageFlagsRef.current = null;
+            applySensorCoverageColors(null);
+            return;
+        }
+        const sensors = selection.sensorIds
+            .map((id) => sensorService.getSensor(id))
+            .filter((sensor): sensor is SensorDefinition => Boolean(sensor));
+        if (!sensors.length) {
+            coverageFlagsRef.current = null;
+            applySensorCoverageColors(null);
+            return;
+        }
+
+        const count = Math.floor(positions.length / 3);
+        if (count <= 0) {
+            coverageFlagsRef.current = null;
+            applySensorCoverageColors(null);
+            return;
+        }
+
+        const flags = computeSensorCoverageFlags(positions, count, sensors);
+        coverageFlagsRef.current = flags;
+        applySensorCoverageColors(flags);
+    }, [applySensorCoverageColors]);
+
+    const handleClearSensorSelection = useCallback(() => {
+        sensorService.clearSelection();
+        setShowSensors(false);
+        setShowSensorInfo(false);
+        setSunLineActive(false);
+        setMoonLineActive(false);
+        removeSensorLines();
+        coverageFlagsRef.current = null;
+        applySensorCoverageColors(null);
+    }, [removeSensorLines, applySensorCoverageColors]);
+
     const handleGlobalReset = createResetViewHandler({
         instancedApiRef,
         tooltipService,
@@ -224,8 +578,13 @@ export const ArcGlobe: React.FC = () => {
         setShowTakePhoto,
         setShowWatchlist,
         setShowSatellitePhotos,
+        setShowSensors,
+        setShowSensorInfo,
+        setSunLineActive,
+        setMoonLineActive,
         setSelectedFeature,
-        onSelectedSatelliteChange: clearSelectedSatellite
+        onSelectedSatelliteChange: clearSelectedSatellite,
+        onClearSensorSelection: handleClearSensorSelection
     });
 
     const handleConstellationSelect = (constellation: Constellation) => {
@@ -348,6 +707,52 @@ export const ArcGlobe: React.FC = () => {
         setSelectedFeature(null);
     };
 
+    const handleCloseSensors = () => {
+        setShowSensors(false);
+        setSelectedFeature(null);
+    };
+
+    const handleCloseSensorInfo = () => {
+        setShowSensorInfo(false);
+        setSelectedFeature(null);
+    };
+
+    const handleSensorsPanelSensor = useCallback((_sensorId: string) => {
+        recomputeSensorCoverage();
+    }, [recomputeSensorCoverage]);
+
+    const handleSensorsPanelGroup = useCallback((_groupId: string) => {
+        recomputeSensorCoverage();
+    }, [recomputeSensorCoverage]);
+
+    const handleSensorsPanelReset = useCallback(() => {
+        handleClearSensorSelection();
+    }, [handleClearSensorSelection]);
+
+    const handleToggleSunLine = useCallback(() => {
+        setSunLineActive((prev) => {
+            const next = !prev;
+            if (next) {
+                drawSensorLine('sun');
+            } else {
+                removeSensorLines('sun');
+            }
+            return next;
+        });
+    }, [drawSensorLine, removeSensorLines]);
+
+    const handleToggleMoonLine = useCallback(() => {
+        setMoonLineActive((prev) => {
+            const next = !prev;
+            if (next) {
+                drawSensorLine('moon');
+            } else {
+                removeSensorLines('moon');
+            }
+            return next;
+        });
+    }, [drawSensorLine, removeSensorLines]);
+
     const handleFocusWatchlistSatellite = (id: number) => {
         if (typeof id !== 'number' || Number.isNaN(id)) {
             return;
@@ -415,6 +820,8 @@ export const ArcGlobe: React.FC = () => {
                 setShowTakePhoto(false);
                 setShowWatchlist(false);
                 setShowSatellitePhotos(false);
+                setShowSensors(false);
+                setShowSensorInfo(false);
                 clearSelectedSatellite();
                 break;
             case 'constellation':
@@ -426,6 +833,8 @@ export const ArcGlobe: React.FC = () => {
                 setShowTakePhoto(false);
                 setShowWatchlist(false);
                 setShowSatellitePhotos(false);
+                setShowSensors(false);
+                setShowSensorInfo(false);
                 clearSelectedSatellite();
                 break;
             case 'create-satellite':
@@ -437,6 +846,8 @@ export const ArcGlobe: React.FC = () => {
                 setShowTakePhoto(false);
                 setShowWatchlist(false);
                 setShowSatellitePhotos(false);
+                setShowSensors(false);
+                setShowSensorInfo(false);
                 clearSelectedSatellite();
                 break;
             case 'color-schemes':
@@ -448,6 +859,8 @@ export const ArcGlobe: React.FC = () => {
                 setShowTakePhoto(false);
                 setShowWatchlist(false);
                 setShowSatellitePhotos(false);
+                setShowSensors(false);
+                setShowSensorInfo(false);
                 break;
             case 'take-photo':
                 setShowTakePhoto(true);
@@ -458,6 +871,8 @@ export const ArcGlobe: React.FC = () => {
                 setShowColorSchemes(false);
                 setShowWatchlist(false);
                 setShowSatellitePhotos(false);
+                setShowSensors(false);
+                setShowSensorInfo(false);
                 break;
             case 'satellite-photos':
                 setShowSatellitePhotos(true);
@@ -468,6 +883,8 @@ export const ArcGlobe: React.FC = () => {
                 setShowColorSchemes(false);
                 setShowTakePhoto(false);
                 setShowWatchlist(false);
+                setShowSensors(false);
+                setShowSensorInfo(false);
                 break;
             case 'watchlist':
                 setShowWatchlist(true);
@@ -478,6 +895,8 @@ export const ArcGlobe: React.FC = () => {
                 setShowColorSchemes(false);
                 setShowTakePhoto(false);
                 setShowSatellitePhotos(false);
+                setShowSensors(false);
+                setShowSensorInfo(false);
                 break;
             case 'debris-scanner':
                 setShowDebrisScanner(true);
@@ -488,6 +907,8 @@ export const ArcGlobe: React.FC = () => {
                 setShowTakePhoto(false);
                 setShowWatchlist(false);
                 setShowSatellitePhotos(false);
+                setShowSensors(false);
+                setShowSensorInfo(false);
                 clearSelectedSatellite();
                 break;
             case 'eci-plot':
@@ -496,9 +917,41 @@ export const ArcGlobe: React.FC = () => {
                 setShowTakePhoto(false);
                 setShowWatchlist(false);
                 setShowSatellitePhotos(false);
+                setShowSensors(false);
+                setShowSensorInfo(false);
                 break;
             case 'ecf-plot':
                 handleOpenOrbitPlot('ecf');
+                setShowColorSchemes(false);
+                setShowTakePhoto(false);
+                setShowWatchlist(false);
+                setShowSatellitePhotos(false);
+                setShowSensors(false);
+                setShowSensorInfo(false);
+                break;
+            case 'sensors':
+                setShowSensors(true);
+                setShowCollisionAnalysis(false);
+                setShowConstellationAnalysis(false);
+                setShowCreateSatellite(false);
+                setShowDebrisScanner(false);
+                setShowColorSchemes(false);
+                setShowTakePhoto(false);
+                setShowWatchlist(false);
+                setShowSatellitePhotos(false);
+                setShowSensorInfo(false);
+                break;
+            case 'sensor-info':
+                if (sensorSelectionRef.current.kind === 'none') {
+                    console.warn('Sensor Info requires a selected sensor.');
+                    return;
+                }
+                setShowSensorInfo(true);
+                setShowSensors(false);
+                setShowCollisionAnalysis(false);
+                setShowConstellationAnalysis(false);
+                setShowCreateSatellite(false);
+                setShowDebrisScanner(false);
                 setShowColorSchemes(false);
                 setShowTakePhoto(false);
                 setShowWatchlist(false);
@@ -730,6 +1183,9 @@ export const ArcGlobe: React.FC = () => {
             tracksLayer = new GraphicsLayer();
             map.add(tracksLayer);
             tracksLayerRef.current = tracksLayer;
+            const sensorLinesLayer = new GraphicsLayer({ listMode: 'hide' });
+            map.add(sensorLinesLayer);
+            sensorLinesLayerRef.current = sensorLinesLayer;
             try {
                 screenshotService.setView(view as __esri.SceneView);
             } catch (error) {
@@ -746,10 +1202,19 @@ export const ArcGlobe: React.FC = () => {
                             instancedApiRef.current = instancedApi;
                             screenshotService.setInstancedApi(instancedApi);
                             watchlistService.setRenderer(instancedApi);
+                            const baseColors = colorSchemeService.getColorBuffer();
+                            baseColorBufferRef.current = baseColors;
                             try {
-                                instancedApi?.setBaseColors?.(colorSchemeService.getColorBuffer());
+                                if (tintedColorsRef.current) {
+                                    instancedApi?.setBaseColors?.(tintedColorsRef.current);
+                                } else {
+                                    instancedApi?.setBaseColors?.(baseColors);
+                                }
                             } catch (error) {
                                 console.warn('ArcGlobe: Unable to push initial color buffer to renderer', error);
+                            }
+                            if (sensorSelectionRef.current.kind !== 'none' && positionsReadyRef.current) {
+                                recomputeSensorCoverage();
                             }
 
                             // Add event handlers after API is ready
@@ -1059,6 +1524,7 @@ export const ArcGlobe: React.FC = () => {
                             // Initialize satellite service
                             satelliteService.initialize(satelliteData, worker);
                             colorSchemeService.initialize(satelliteData);
+                            coverageFlagsRef.current = new Float32Array(satelliteData.length);
                             try {
                                 await watchlistService.hydrate('/tle/watchlist.json');
                             } catch (error) {
@@ -1073,8 +1539,8 @@ export const ArcGlobe: React.FC = () => {
                                 // Ignore PV for now; renderer expects lon/lat/h. Use 'positions' path below.
                                 if (data.type === 'positions' && data.positions) {
                                     const arr = data.positions instanceof Float32Array ? data.positions : new Float32Array(data.positions as ArrayBuffer);
+                                    const count = Math.floor(arr.length / 3);
                                     if (useInstanced && instancedApi) {
-                                        const count = Math.floor(arr.length / 3);
                                         instancedApi.updatePositions(arr.buffer, count);
                                         if (expectedSatelliteCount > 0 && count >= expectedSatelliteCount && isLoadingRef.current) {
                                             requestAnimationFrame(() => {
@@ -1082,6 +1548,18 @@ export const ArcGlobe: React.FC = () => {
                                                     markLoaded();
                                                 }, 150);
                                             });
+                                        }
+                                    }
+                                    if (count > 0) {
+                                        positionsReadyRef.current = true;
+                                        let positionsBuffer = lastPositionsRef.current;
+                                        if (!positionsBuffer || positionsBuffer.length !== arr.length) {
+                                            positionsBuffer = new Float32Array(arr.length);
+                                            lastPositionsRef.current = positionsBuffer;
+                                        }
+                                        positionsBuffer.set(arr);
+                                        if (sensorSelectionRef.current.kind !== 'none') {
+                                            recomputeSensorCoverage();
                                         }
                                     }
                                 } else if (data.type === 'track' && data.positions) {
@@ -1160,6 +1638,32 @@ export const ArcGlobe: React.FC = () => {
         };
     }, []);
 
+    useEffect(() => {
+        const unsubscribe = sensorService.subscribe((next) => {
+            sensorSelectionRef.current = next;
+            setSensorSelectionState(next);
+            if (next.kind === 'none') {
+                setSunLineActive(false);
+                setMoonLineActive(false);
+                removeSensorLines();
+                coverageFlagsRef.current = null;
+                applySensorCoverageColors(null);
+            }
+        });
+        return unsubscribe;
+    }, [removeSensorLines, applySensorCoverageColors]);
+
+    useEffect(() => {
+        if (sensorSelectionState.kind === 'none') {
+            coverageFlagsRef.current = null;
+            applySensorCoverageColors(null);
+            return;
+        }
+        if (positionsReadyRef.current) {
+            recomputeSensorCoverage();
+        }
+    }, [sensorSelectionState, recomputeSensorCoverage, applySensorCoverageColors]);
+
     useEffect(() => (
         orbitPlotService.subscribe((event) => {
             if (orbitPlotRequestRef.current !== event.requestId) {
@@ -1181,17 +1685,23 @@ export const ArcGlobe: React.FC = () => {
 
     useEffect(() => {
         const unsubscribe = colorSchemeService.subscribe(({ buffer }) => {
-            const instancedApi = instancedApiRef.current;
-            if (instancedApi?.setBaseColors) {
-                try {
-                    instancedApi.setBaseColors(buffer);
-                } catch (error) {
-                    console.warn('ArcGlobe: Failed to push color buffer to renderer', error);
+            baseColorBufferRef.current = buffer;
+            if (coverageFlagsRef.current && coverageFlagsRef.current.length) {
+                applySensorCoverageColors(coverageFlagsRef.current);
+            } else {
+                const instancedApi = instancedApiRef.current;
+                tintedColorsRef.current = null;
+                if (instancedApi?.setBaseColors) {
+                    try {
+                        instancedApi.setBaseColors(buffer);
+                    } catch (error) {
+                        console.warn('ArcGlobe: Failed to push color buffer to renderer', error);
+                    }
                 }
             }
         });
         return unsubscribe;
-    }, []);
+    }, [applySensorCoverageColors]);
 
     const handleOpenOrbitPlot = (mode: OrbitPlotMode) => {
         const selectedIds = selectedIdRef.current !== null
@@ -1250,21 +1760,42 @@ export const ArcGlobe: React.FC = () => {
                                 ? { name: 'watchlist', props: { onClose: () => handleCloseWatchlist(), onFocusSatellite: handleFocusWatchlistSatellite } }
                                 : showSatellitePhotos
                                     ? { name: 'satellite-photos', props: { onClose: () => handleCloseSatellitePhotos(), onFocusSatellite: handleFocusWatchlistSatellite } }
-                                    : orbitPlotState
+                                    : showSensors
                                         ? {
-                                            name: 'orbit-plot',
+                                            name: 'sensors',
                                             props: {
-                                                onClose: handleCloseOrbitPlot,
-                                                mode: orbitPlotState.mode,
-                                                worker: workerRef.current,
-                                                satelliteIds: orbitPlotState.satellites,
-                                                title: orbitPlotState.title,
-                                                data: orbitPlotState.series,
-                                                loading: orbitPlotState.isLoading,
-                                                error: orbitPlotState.error
+                                                onClose: () => handleCloseSensors(),
+                                                onSelectSensor: handleSensorsPanelSensor,
+                                                onSelectGroup: handleSensorsPanelGroup,
+                                                onReset: handleSensorsPanelReset
                                             }
                                         }
-                                        : null;
+                                        : showSensorInfo
+                                            ? {
+                                                name: 'sensor-info',
+                                                props: {
+                                                    onClose: () => handleCloseSensorInfo(),
+                                                    onToggleSunLine: handleToggleSunLine,
+                                                    onToggleMoonLine: handleToggleMoonLine,
+                                                    sunLineActive,
+                                                    moonLineActive
+                                                }
+                                            }
+                                            : orbitPlotState
+                                                ? {
+                                                    name: 'orbit-plot',
+                                                    props: {
+                                                        onClose: handleCloseOrbitPlot,
+                                                        mode: orbitPlotState.mode,
+                                                        worker: workerRef.current,
+                                                        satelliteIds: orbitPlotState.satellites,
+                                                        title: orbitPlotState.title,
+                                                        data: orbitPlotState.series,
+                                                        loading: orbitPlotState.isLoading,
+                                                        error: orbitPlotState.error
+                                                    }
+                                                }
+                                                : null;
 
     const activeFeatureTitle = activeFeature ? (
         activeFeature.name === 'collision' ? 'Collision Analysis'
@@ -1275,9 +1806,15 @@ export const ArcGlobe: React.FC = () => {
                             : activeFeature.name === 'take-photo' ? 'Take Photo'
                                 : activeFeature.name === 'watchlist' ? 'Watchlist'
                                     : activeFeature.name === 'satellite-photos' ? 'Satellite Photos'
-                                        : activeFeature.name === 'orbit-plot' ? activeFeature.props.title
-                                            : null
+                                        : activeFeature.name === 'sensors' ? 'Sensors'
+                                            : activeFeature.name === 'sensor-info' ? 'Sensor Info'
+                                                : activeFeature.name === 'orbit-plot' ? activeFeature.props.title
+                                                    : null
     ) : null;
+
+    const featureAvailability = useMemo(() => ({
+        'sensor-info': sensorSelectionState.kind !== 'none'
+    }), [sensorSelectionState.kind]);
 
     return (
         <>
@@ -1304,6 +1841,7 @@ export const ArcGlobe: React.FC = () => {
                 onApplyFilters={handleApplyFilters}
                 onResetView={handleGlobalReset}
                 resetDisabled={isLoading}
+                featureAvailability={featureAvailability}
             />
             <Footer
                 isVisible={!!activeFeature}
@@ -1317,6 +1855,11 @@ export const ArcGlobe: React.FC = () => {
                     setShowTakePhoto(false);
                     setShowWatchlist(false);
                     setShowSatellitePhotos(false);
+                    setShowSensors(false);
+                    setShowSensorInfo(false);
+                    setSunLineActive(false);
+                    setMoonLineActive(false);
+                    removeSensorLines();
                     setOrbitPlotState(null);
                     setSelectedFeature(null);
                 }}

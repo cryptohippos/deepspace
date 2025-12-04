@@ -51,6 +51,8 @@ class WatchlistService {
     private listeners = new Set<Listener>();
     private instancedApi: InstancedApi | null = null;
     private flags = new Float32Array(0);
+    private overlayFlags: Float32Array | null = null;
+    private combinedFlags: Float32Array | null = null;
     private hydrated = false;
     private initializing = false;
     private pendingHydrate: Promise<WatchlistImportResult> | null = null;
@@ -143,6 +145,22 @@ class WatchlistService {
      */
     setRenderer(instancedApi: InstancedApi | null): void {
         this.instancedApi = instancedApi;
+        this.syncRenderer();
+    }
+
+    setOverlay(flags: Float32Array | ArrayLike<number> | null): void {
+        if (flags == null) {
+            this.overlayFlags = null;
+            this.combinedFlags = null;
+        } else if (flags instanceof Float32Array) {
+            this.overlayFlags = flags;
+        } else {
+            const next = new Float32Array(flags.length);
+            for (let i = 0; i < flags.length; i++) {
+                next[i] = Number(flags[i]);
+            }
+            this.overlayFlags = next;
+        }
         this.syncRenderer();
     }
 
@@ -384,6 +402,8 @@ class WatchlistService {
         const length = this.metadata.length;
         if (length === 0) {
             this.flags = new Float32Array(0);
+            this.overlayFlags = null;
+            this.combinedFlags = null;
             return;
         }
         const next = new Float32Array(length);
@@ -393,6 +413,14 @@ class WatchlistService {
             }
         }
         this.flags = next;
+        if (this.overlayFlags && this.overlayFlags.length !== length) {
+            const resized = new Float32Array(length);
+            resized.set(this.overlayFlags.subarray(0, Math.min(this.overlayFlags.length, length)));
+            this.overlayFlags = resized;
+        }
+        if (this.combinedFlags && this.combinedFlags.length !== length) {
+            this.combinedFlags = new Float32Array(length);
+        }
     }
 
     private syncRenderer(): void {
@@ -400,7 +428,23 @@ class WatchlistService {
             return;
         }
         try {
-            this.instancedApi.setWatchlistFlags(this.flags);
+            const overlay = this.overlayFlags;
+            const base = this.flags;
+            if (overlay && overlay.length === base.length) {
+                if (!this.combinedFlags || this.combinedFlags.length !== base.length) {
+                    this.combinedFlags = new Float32Array(base.length);
+                }
+                const combined = this.combinedFlags;
+                combined.set(base);
+                for (let i = 0; i < overlay.length; i++) {
+                    if (overlay[i] > 0) {
+                        combined[i] = 1;
+                    }
+                }
+                this.instancedApi.setWatchlistFlags(combined);
+            } else {
+                this.instancedApi.setWatchlistFlags(base);
+            }
         } catch (error) {
             console.warn('WatchlistService: failed to push watchlist flags to renderer', error);
         }
