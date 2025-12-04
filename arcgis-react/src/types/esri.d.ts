@@ -11,6 +11,13 @@ declare namespace __esri {
         removeAll(): void;
     }
 
+    interface PointProperties {
+        type: 'point';
+        longitude: number;
+        latitude: number;
+        z?: number;
+    }
+
     interface SceneView {
         container: HTMLElement;
         width: number;
@@ -28,6 +35,11 @@ declare namespace __esri {
             format: string;
         }>;
         destroy(): void;
+        goTo(target: PointProperties | { target: PointProperties; position?: PointProperties; tilt?: number }, options?: { duration?: number; easing?: string }): Promise<void>;
+        graphics?: {
+            add(graphic: Graphic): void;
+            remove(graphic: Graphic): void;
+        };
     }
 }
 

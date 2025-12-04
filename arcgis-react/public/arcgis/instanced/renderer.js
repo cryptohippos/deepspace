@@ -251,7 +251,8 @@
             watchlistData: null,
             watchlistPacked: null,
             watchlistNeedsUpload: true,
-            prevWatchlistCount: 0
+            prevWatchlistCount: 0,
+            prevSensorCoverageCount: 0
         };
 
         function ensureCapacity(n) {
@@ -349,7 +350,6 @@
                 state.prevWatchlistCount = visible;
                 state.watchlistNeedsUpload = true;
             }
-
             if (state.colorBuffer && state.colorPackedBuffer && visible > 0 && state.colorNeedsUpload) {
                 const colorDst = new Float32Array(state.colorPackedBuffer, 0, visible * 4);
                 const sourceColors = state.colorData;

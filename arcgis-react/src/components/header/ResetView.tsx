@@ -16,8 +16,13 @@ interface ResetViewDependencies {
     setShowTakePhoto: (value: boolean) => void;
     setShowWatchlist: (value: boolean) => void;
     setShowSatellitePhotos: (value: boolean) => void;
+    setShowSensors: (value: boolean) => void;
+    setShowSensorInfo: (value: boolean) => void;
+    setSunLineActive: (value: boolean) => void;
+    setMoonLineActive: (value: boolean) => void;
     setSelectedFeature: (value: string | null) => void;
     onSelectedSatelliteChange?: (satellite: SatelliteData | null) => void;
+    onClearSensorSelection?: () => void;
 }
 
 export const createResetViewHandler = ({
@@ -34,8 +39,13 @@ export const createResetViewHandler = ({
     setShowTakePhoto,
     setShowWatchlist,
     setShowSatellitePhotos,
+    setShowSensors,
+    setShowSensorInfo,
+    setSunLineActive,
+    setMoonLineActive,
     setSelectedFeature,
-    onSelectedSatelliteChange
+    onSelectedSatelliteChange,
+    onClearSensorSelection
 }: ResetViewDependencies): (() => void) => {
     return () => {
         const api = instancedApiRef.current;
@@ -61,8 +71,13 @@ export const createResetViewHandler = ({
         setShowTakePhoto(false);
         setShowWatchlist(false);
         setShowSatellitePhotos(false);
+        setShowSensors(false);
+        setShowSensorInfo(false);
+        setSunLineActive(false);
+        setMoonLineActive(false);
         setSelectedFeature(null);
         onSelectedSatelliteChange?.(null);
+        onClearSensorSelection?.();
     };
 };
 

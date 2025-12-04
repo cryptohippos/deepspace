@@ -1,0 +1,232 @@
+.sensors-panel {
+    display: flex;
+    flex-direction: column;
+    width: 520px;
+    max-height: 80vh;
+    background: rgba(12, 18, 28, 0.96);
+    border-radius: 18px;
+    border: 1px solid rgba(120, 170, 255, 0.22);
+    padding: 24px 24px 28px;
+    color: #f1f6ff;
+    box-shadow: 0 32px 90px rgba(6, 12, 24, 0.65);
+    gap: 20px;
+}
+
+.sensors-panel.visible {
+    animation: sensors-fade-in 160ms ease-out;
+}
+
+@keyframes sensors-fade-in {
+    from {
+        opacity: 0;
+        transform: translateY(14px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.sensors-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.sensors-header h3 {
+    margin: 0;
+    font-size: 1.2rem;
+    font-weight: 600;
+}
+
+.sensors-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.sensors-close {
+    border: none;
+    background: rgba(255, 255, 255, 0.15);
+    color: #ffffff;
+    border-radius: 999px;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.sensors-close:hover {
+    background: rgba(255, 255, 255, 0.25);
+}
+
+.sensors-body {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    padding-right: 6px;
+}
+
+.sensors-body::-webkit-scrollbar {
+    width: 6px;
+}
+
+.sensors-body::-webkit-scrollbar-thumb {
+    background: rgba(120, 170, 255, 0.28);
+    border-radius: 999px;
+}
+
+.sensors-group {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.05);
+    padding: 16px;
+}
+
+.sensors-group-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.sensors-group-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.sensors-group-title h4 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #dbe7ff;
+}
+
+.sensors-group-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(120, 170, 255, 0.18);
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #ffffff;
+    letter-spacing: 0.05em;
+}
+
+.sensors-button {
+    border: none;
+    border-radius: 999px;
+    padding: 8px 16px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.15s ease, background 0.2s ease, opacity 0.2s ease;
+}
+
+.sensors-button.primary {
+    background: linear-gradient(135deg, #6ea4ff, #3f7eff);
+    color: #071022;
+}
+
+.sensors-button.secondary {
+    background: rgba(255, 255, 255, 0.15);
+    color: #f1f6ff;
+}
+
+.sensors-button.tertiary {
+    background: rgba(255, 255, 255, 0.08);
+    color: #d6e4ff;
+}
+
+.sensors-button:hover:not(:disabled) {
+    transform: translateY(-1px);
+}
+
+.sensors-button:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.sensors-button.tertiary.active {
+    background: linear-gradient(135deg, rgba(120, 170, 255, 0.6), rgba(120, 170, 255, 0.8));
+    color: #071022;
+}
+
+.sensors-list {
+    display: grid;
+    gap: 10px;
+}
+
+.sensor-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.06);
+    cursor: pointer;
+    transition: transform 0.15s ease, background 0.2s ease, border 0.2s ease;
+}
+
+.sensor-card:hover {
+    transform: translateY(-1px);
+    background: rgba(120, 170, 255, 0.12);
+}
+
+.sensor-card.selected {
+    border-color: rgba(120, 170, 255, 0.6);
+    background: rgba(120, 170, 255, 0.18);
+    box-shadow: 0 10px 30px rgba(120, 170, 255, 0.2);
+}
+
+.sensor-card-name {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.sensor-card-label {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #f0f6ff;
+}
+
+.sensor-card-short {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #b9ccf4;
+    letter-spacing: 0.05em;
+}
+
+.sensor-card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    font-size: 0.78rem;
+    color: #a9c4f2;
+}
+
+.sensor-card-meta span::before {
+    content: '•';
+    margin-right: 4px;
+    color: rgba(255, 255, 255, 0.35);
+}
+
+.sensor-card-meta span:first-child::before {
+    content: '';
+    margin-right: 0;
+}

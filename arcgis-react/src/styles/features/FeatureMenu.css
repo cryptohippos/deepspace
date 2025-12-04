@@ -98,6 +98,11 @@
     transform: translateX(2px);
 }
 
+.feature-item.disabled {
+    opacity: 0.45;
+    pointer-events: none;
+}
+
 .feature-item:focus {
     outline: none;
     box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.3);

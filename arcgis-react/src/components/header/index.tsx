@@ -14,6 +14,7 @@ interface HeaderProps {
     onApplyFilters: (criteria: FilterCriteria) => void;
     onResetView: () => void;
     resetDisabled?: boolean;
+    featureAvailability?: Record<string, boolean>;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -26,7 +27,8 @@ export const Header: React.FC<HeaderProps> = ({
     onToggleFilters,
     onApplyFilters,
     onResetView,
-    resetDisabled
+    resetDisabled,
+    featureAvailability
 }) => {
     const [menuOpen, setMenuOpen] = useState(false);
 
@@ -92,6 +94,7 @@ export const Header: React.FC<HeaderProps> = ({
                     onShowUserCreated={onShowUserCreated}
                     onTestConstellations={onTestConstellations}
                     onClose={() => setMenuOpen(false)}
+                    featureAvailability={featureAvailability}
                 />
             )}
 

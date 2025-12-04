@@ -11,6 +11,7 @@ interface FeatureMenuProps {
     onTestConstellations?: () => void;
     isOpen?: boolean;
     onClose?: () => void;
+    featureAvailability?: Record<string, boolean>;
 }
 
 export const FeatureMenu: React.FC<FeatureMenuProps> = ({
@@ -20,7 +21,8 @@ export const FeatureMenu: React.FC<FeatureMenuProps> = ({
     onShowUserCreated,
     onTestConstellations,
     isOpen = false,
-    onClose
+    onClose,
+    featureAvailability
 }) => {
     const [activeTab, setActiveTab] = useState<MenuTab>('basic');
     const [isAnimating, setIsAnimating] = useState(false);
@@ -56,6 +58,8 @@ export const FeatureMenu: React.FC<FeatureMenuProps> = ({
         advanced: [
             { id: 'watchlist', name: 'Watchlist', icon: '⭐', description: 'Monitor priority satellites' },
             { id: 'satellite-photos', name: 'Satellite Photos', icon: '🖼️', description: 'View latest Earth imagery from satellites' },
+            { id: 'sensors', name: 'Sensors', icon: '📡', description: 'Browse ground sensors and coverage' },
+            { id: 'sensor-info', name: 'Sensor Info', icon: 'ℹ️', description: 'View details for the selected sensor' },
             { id: 'create-breakup', name: 'Create Breakup', icon: '💥', description: 'Simulate satellite breakup event' }
         ],
         analysis: [
@@ -66,6 +70,9 @@ export const FeatureMenu: React.FC<FeatureMenuProps> = ({
     } as const;
 
     const handleFeatureClick = (featureId: string) => {
+        if (featureAvailability && featureAvailability[featureId] === false) {
+            return;
+        }
         if (featureId === 'test-constellations') {
             if (onTestConstellations) onTestConstellations();
         } else {
@@ -145,21 +152,24 @@ export const FeatureMenu: React.FC<FeatureMenuProps> = ({
 
                 {/* Feature List */}
                 <div className="feature-list">
-                    {menuItems[activeTab].map((item) => (
-                        <div
-                            key={item.id}
-                            className={`feature-item ${selectedFeature === item.id ? 'selected' : ''}`}
-                            onClick={() => handleFeatureClick(item.id)}
-                            role="button"
-                            tabIndex={0}
-                        >
-                            <div className="feature-icon">{item.icon}</div>
-                            <div className="feature-info">
-                                <div className="feature-name">{item.name}</div>
-                                <div className="feature-description">{item.description}</div>
+                    {menuItems[activeTab].map((item) => {
+                        const isDisabled = featureAvailability && featureAvailability[item.id] === false;
+                        return (
+                            <div
+                                key={item.id}
+                                className={`feature-item ${selectedFeature === item.id ? 'selected' : ''} ${isDisabled ? 'disabled' : ''}`}
+                                onClick={() => handleFeatureClick(item.id)}
+                                role="button"
+                                tabIndex={0}
+                            >
+                                <div className="feature-icon">{item.icon}</div>
+                                <div className="feature-info">
+                                    <div className="feature-name">{item.name}</div>
+                                    <div className="feature-description">{item.description}</div>
+                                </div>
                             </div>
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
             </div>
         </div>
