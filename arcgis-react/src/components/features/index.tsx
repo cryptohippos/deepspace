@@ -7,6 +7,7 @@ import { ColorSchemePanel } from '~/components/features/color-schemes/ColorSchem
 import { OrbitPlot } from '~/components/features/orbit-plots/OrbitPlot';
 import type { OrbitPlotMode, OrbitPlotSeries } from '~/components/features/orbit-plots/types';
 import { SatellitePhotosPanel } from '~/components/features/satellite-photos/SatellitePhotosPanel';
+import { SensorFovPanel } from '~/components/features/sensors/SensorFovPanel';
 import { SensorInfoPanel } from '~/components/features/sensors/SensorInfoPanel';
 import { SensorsPanel } from '~/components/features/sensors/SensorsPanel';
 import { TakePhotoPanel } from '~/components/features/take-photo/TakePhotoPanel';
@@ -22,6 +23,7 @@ export type ActiveFeature =
     | { name: 'watchlist'; props: { onClose: () => void; onFocusSatellite: (id: number) => void } }
     | { name: 'satellite-photos'; props: { onClose: () => void; onFocusSatellite: (id: number) => void } }
     | { name: 'sensors'; props: { onClose: () => void; onSelectSensor: (id: string) => void; onSelectGroup: (id: string) => void; onReset: () => void } }
+    | { name: 'sensor-fov'; props: { onClose: () => void; onToggle: () => void; active: boolean; hasSelection: boolean; message: string | null } }
     | { name: 'sensor-info'; props: { onClose: () => void; onToggleSunLine: () => void; onToggleMoonLine: () => void; sunLineActive: boolean; moonLineActive: boolean } }
     | { name: 'orbit-plot'; props: { onClose: () => void; mode: OrbitPlotMode; worker: Worker | null; satelliteIds: number[]; title: string; data: OrbitPlotSeries[] | null; loading: boolean; error: string | null } };
 
@@ -104,6 +106,17 @@ export const FeatureHost: React.FC<FeatureHostProps> = ({ active }) => {
                     onSelectSensor={active.props.onSelectSensor}
                     onSelectGroup={active.props.onSelectGroup}
                     onReset={active.props.onReset}
+                />
+            );
+        case 'sensor-fov':
+            return (
+                <SensorFovPanel
+                    isVisible={true}
+                    onClose={active.props.onClose}
+                    onToggle={active.props.onToggle}
+                    isActive={active.props.active}
+                    hasSelection={active.props.hasSelection}
+                    message={active.props.message}
                 />
             );
         case 'sensor-info':
