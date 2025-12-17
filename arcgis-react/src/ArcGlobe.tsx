@@ -38,6 +38,12 @@ const ecefToGeodetic = (x: number, y: number, z: number) => {
 };
 
 const SENSOR_TINT = [0.2, 0.45, 0.95] as const;
+const SENSOR_FOV_COLOR = [80, 165, 255, 0.18] as const;
+const SENSOR_FOV_EDGE_COLOR = [80, 165, 255, 0.6] as const;
+const MAX_SENSOR_FOV_RANGE_METERS = 60000000; // Clamp to ~60,000 km to avoid degenerate meshes
+const MIN_SENSOR_FOV_SAMPLES = 16;
+const MAX_SENSOR_FOV_SAMPLES = 72;
+const SENSOR_FOV_MIN_STEP_DEG = 5;
 
 const normalizeAzimuth = (value: number | null | undefined): number => {
     if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -51,6 +57,9 @@ const normalizeAzimuth = (value: number | null | undefined): number => {
 };
 
 interface PreparedSensor {
+    latitude: number;
+    longitude: number;
+    altitudeMeters: number;
     ecefX: number;
     ecefY: number;
     ecefZ: number;
@@ -89,6 +98,9 @@ const prepareSensor = (sensor: SensorDefinition): PreparedSensor | null => {
     const minAz = normalizeAzimuth(sensor.minAzimuth);
     const maxAz = normalizeAzimuth(sensor.maxAzimuth ?? (sensor.minAzimuth ?? 360));
     return {
+        latitude,
+        longitude,
+        altitudeMeters,
         ecefX: ecef.x,
         ecefY: ecef.y,
         ecefZ: ecef.z,
@@ -328,6 +340,15 @@ export const ArcGlobe: React.FC = () => {
     const viewRef = useRef<__esri.SceneView | null>(null);
     const tracksLayerRef = useRef<__esri.GraphicsLayer | null>(null);
     const sensorLinesLayerRef = useRef<__esri.GraphicsLayer | null>(null);
+    const sensorFovLayerRef = useRef<__esri.GraphicsLayer | null>(null);
+    const sensorFovGraphicsRef = useRef<Map<string, __esri.Graphic>>(new Map());
+    const sensorFovModulesRef = useRef<{
+        Mesh: any;
+        MeshSymbol3D: any;
+        FillSymbol3DLayer: any;
+        SolidEdges3D: any;
+        Graphic: any;
+    } | null>(null);
     const trackGraphicsRef = useRef<Map<number, __esri.Graphic>>(new Map());
     const selectedIdRef = useRef<number | null>(null);
     const isLoadingRef = useRef(true);
@@ -353,6 +374,10 @@ export const ArcGlobe: React.FC = () => {
     const [showSatellitePhotos, setShowSatellitePhotos] = useState(false);
     const [showSensors, setShowSensors] = useState(false);
     const [showSensorInfo, setShowSensorInfo] = useState(false);
+    const [showSensorFov, setShowSensorFov] = useState(false);
+    const [sensorFovActive, setSensorFovActive] = useState(false);
+    const sensorFovActiveRef = useRef(false);
+    const [sensorFovMessage, setSensorFovMessage] = useState<string | null>(null);
     const [sunLineActive, setSunLineActive] = useState(false);
     const [moonLineActive, setMoonLineActive] = useState(false);
     const [sensorSelectionState, setSensorSelectionState] = useState<SensorSelection>(() => sensorService.getSelection());
@@ -450,6 +475,322 @@ export const ArcGlobe: React.FC = () => {
         } as __esri.Graphic);
         sensorLineGraphicsRef.current[kind] = graphic ?? null;
     }, [removeSensorLines]);
+
+    const clearSensorFov = useCallback(() => {
+        const layer = sensorFovLayerRef.current;
+        if (layer) {
+            try {
+                layer.removeAll();
+            } catch {
+                // ignore
+            }
+        }
+        sensorFovGraphicsRef.current.clear();
+    }, []);
+
+    const createSensorFovGraphic = useCallback((sensor: SensorDefinition) => {
+        const modules = sensorFovModulesRef.current;
+        if (!modules) {
+            return null;
+        }
+        const prepared = prepareSensor(sensor);
+        if (!prepared) {
+            return null;
+        }
+
+        const { Mesh, MeshSymbol3D, FillSymbol3DLayer, SolidEdges3D, Graphic } = modules;
+
+        let maxElevation = prepared.maxElRad;
+        if (!Number.isFinite(maxElevation) || maxElevation <= 0) {
+            maxElevation = deg2rad(5);
+        }
+
+        let minElevation = prepared.minElRad;
+        if (!Number.isFinite(minElevation) || minElevation < 0) {
+            minElevation = 0;
+        }
+
+        if (maxElevation - minElevation < deg2rad(0.5)) {
+            maxElevation = Math.min(maxElevation + deg2rad(0.25), deg2rad(89));
+            minElevation = Math.max(minElevation - deg2rad(0.25), 0);
+        }
+
+        let minAz = prepared.minAz;
+        let maxAz = prepared.maxAz;
+        if (prepared.azWraps) {
+            maxAz += 360;
+        }
+        let span = maxAz - minAz;
+        if (!Number.isFinite(span) || span <= 0) {
+            span = 360;
+            minAz = 0;
+        }
+
+        const sampleCount = Math.min(
+            MAX_SENSOR_FOV_SAMPLES,
+            Math.max(MIN_SENSOR_FOV_SAMPLES, Math.ceil(span / SENSOR_FOV_MIN_STEP_DEG))
+        );
+
+        const rawMaxRange = Number.isFinite(prepared.maxRange) ? prepared.maxRange : MAX_SENSOR_FOV_RANGE_METERS;
+        const baseFarDistance = Math.min(Math.max(rawMaxRange, 1000), MAX_SENSOR_FOV_RANGE_METERS);
+        if (!Number.isFinite(baseFarDistance) || baseFarDistance <= 0) {
+            return null;
+        }
+
+        const baseNearDistance = Math.max(prepared.minRange, 1000);
+
+        const computeDirection = (azDeg: number, elevation: number) => {
+            const azRad = deg2rad(azDeg);
+            const cosEl = Math.cos(elevation);
+            const sinEl = Math.sin(elevation);
+            const xEast = cosEl * Math.sin(azRad);
+            const yNorth = cosEl * Math.cos(azRad);
+            const zUp = sinEl;
+
+            const dirX = -prepared.sinLon * xEast - prepared.sinLat * prepared.cosLon * yNorth + prepared.cosLat * prepared.cosLon * zUp;
+            const dirY = prepared.cosLon * xEast - prepared.sinLat * prepared.sinLon * yNorth + prepared.cosLat * prepared.sinLon * zUp;
+            const dirZ = prepared.cosLat * yNorth + prepared.sinLat * zUp;
+            const length = Math.hypot(dirX, dirY, dirZ);
+            if (!length) {
+                return null;
+            }
+            return {
+                x: dirX / length,
+                y: dirY / length,
+                z: dirZ / length
+            };
+        };
+
+        const intersectEarth = (dir: { x: number; y: number; z: number }) => {
+            const b = 2 * (prepared.ecefX * dir.x + prepared.ecefY * dir.y + prepared.ecefZ * dir.z);
+            const c = prepared.ecefX * prepared.ecefX + prepared.ecefY * prepared.ecefY + prepared.ecefZ * prepared.ecefZ - WGS84_A * WGS84_A;
+            const discriminant = b * b - 4 * c;
+            if (discriminant < 0) {
+                return null;
+            }
+            const sqrt = Math.sqrt(discriminant);
+            const t1 = (-b - sqrt) / 2;
+            const t2 = (-b + sqrt) / 2;
+            const candidates = [t1, t2].filter((value) => value > 0);
+            if (!candidates.length) {
+                return null;
+            }
+            return Math.min(...candidates);
+        };
+
+        const nearMaxRing: Array<{ lon: number; lat: number; height: number }> = [];
+        const nearMinRing: Array<{ lon: number; lat: number; height: number }> = [];
+        const farMaxRing: Array<{ lon: number; lat: number; height: number }> = [];
+        const farMinRing: Array<{ lon: number; lat: number; height: number }> = [];
+
+        for (let i = 0; i < sampleCount; i++) {
+            const fraction = i / sampleCount;
+            const azDeg = minAz + span * fraction;
+            const normalizedAz = ((azDeg % 360) + 360) % 360;
+
+            const maxDir = computeDirection(normalizedAz, maxElevation);
+            const minDir = computeDirection(normalizedAz, minElevation);
+            if (!maxDir || !minDir) {
+                continue;
+            }
+
+            let nearDistance = baseNearDistance;
+            const earthDistance = intersectEarth(minDir);
+            if (earthDistance && earthDistance > 0) {
+                nearDistance = Math.max(nearDistance, Math.min(earthDistance, baseFarDistance * 0.95));
+            }
+            if (nearDistance >= baseFarDistance) {
+                nearDistance = Math.max(1000, baseFarDistance * 0.85);
+            }
+
+            const farDistance = Math.max(baseFarDistance, nearDistance + 5000);
+
+            const nearMaxEcefX = prepared.ecefX + maxDir.x * nearDistance;
+            const nearMaxEcefY = prepared.ecefY + maxDir.y * nearDistance;
+            const nearMaxEcefZ = prepared.ecefZ + maxDir.z * nearDistance;
+            const nearMaxGeo = ecefToGeodetic(nearMaxEcefX, nearMaxEcefY, nearMaxEcefZ);
+            nearMaxRing.push({ lon: nearMaxGeo.longitude, lat: nearMaxGeo.latitude, height: nearMaxGeo.height });
+
+            const nearMinEcefX = prepared.ecefX + minDir.x * nearDistance;
+            const nearMinEcefY = prepared.ecefY + minDir.y * nearDistance;
+            const nearMinEcefZ = prepared.ecefZ + minDir.z * nearDistance;
+            const nearMinGeo = ecefToGeodetic(nearMinEcefX, nearMinEcefY, nearMinEcefZ);
+            nearMinRing.push({ lon: nearMinGeo.longitude, lat: nearMinGeo.latitude, height: nearMinGeo.height });
+
+            const farMaxEcefX = prepared.ecefX + maxDir.x * farDistance;
+            const farMaxEcefY = prepared.ecefY + maxDir.y * farDistance;
+            const farMaxEcefZ = prepared.ecefZ + maxDir.z * farDistance;
+            const farMaxGeo = ecefToGeodetic(farMaxEcefX, farMaxEcefY, farMaxEcefZ);
+            farMaxRing.push({ lon: farMaxGeo.longitude, lat: farMaxGeo.latitude, height: farMaxGeo.height });
+
+            const farMinEcefX = prepared.ecefX + minDir.x * farDistance;
+            const farMinEcefY = prepared.ecefY + minDir.y * farDistance;
+            const farMinEcefZ = prepared.ecefZ + minDir.z * farDistance;
+            const farMinGeo = ecefToGeodetic(farMinEcefX, farMinEcefY, farMinEcefZ);
+            farMinRing.push({ lon: farMinGeo.longitude, lat: farMinGeo.latitude, height: farMinGeo.height });
+        }
+
+        const count = Math.min(nearMaxRing.length, nearMinRing.length, farMaxRing.length, farMinRing.length);
+        if (count < 3) {
+            return null;
+        }
+
+        const totalVertices = count * 4;
+        const positions = new Float64Array(totalVertices * 3);
+        let offset = 0;
+
+        const nearMaxStart = 0;
+        const nearMinStart = nearMaxStart + count;
+        const farMaxStart = nearMinStart + count;
+        const farMinStart = farMaxStart + count;
+
+        for (let i = 0; i < count; i++) {
+            const v = nearMaxRing[i];
+            positions[offset++] = v.lon;
+            positions[offset++] = v.lat;
+            positions[offset++] = v.height;
+        }
+        for (let i = 0; i < count; i++) {
+            const v = nearMinRing[i];
+            positions[offset++] = v.lon;
+            positions[offset++] = v.lat;
+            positions[offset++] = v.height;
+        }
+        for (let i = 0; i < count; i++) {
+            const v = farMaxRing[i];
+            positions[offset++] = v.lon;
+            positions[offset++] = v.lat;
+            positions[offset++] = v.height;
+        }
+        for (let i = 0; i < count; i++) {
+            const v = farMinRing[i];
+            positions[offset++] = v.lon;
+            positions[offset++] = v.lat;
+            positions[offset++] = v.height;
+        }
+
+        const faces: number[] = [];
+
+        for (let i = 0; i < count; i++) {
+            const next = (i + 1) % count;
+
+            const nmCurr = nearMaxStart + i;
+            const nmNext = nearMaxStart + next;
+            const nminCurr = nearMinStart + i;
+            const nminNext = nearMinStart + next;
+            const fmCurr = farMaxStart + i;
+            const fmNext = farMaxStart + next;
+            const fminCurr = farMinStart + i;
+            const fminNext = farMinStart + next;
+
+            // Max elevation wall
+            faces.push(fmCurr, fmNext, nmNext);
+            faces.push(fmCurr, nmNext, nmCurr);
+
+            // Min elevation wall
+            faces.push(nminCurr, nminNext, fminNext);
+            faces.push(nminCurr, fminNext, fminCurr);
+
+            // Far range cap
+            faces.push(fmCurr, fminCurr, fminNext);
+            faces.push(fmCurr, fminNext, fmNext);
+
+            // Near range cap
+            faces.push(nmCurr, nmNext, nminNext);
+            faces.push(nmCurr, nminNext, nminCurr);
+        }
+
+        const mesh = new Mesh({
+            spatialReference: { wkid: 4326 },
+            vertexAttributes: {
+                position: positions
+            },
+            components: [
+                {
+                    faces: new Uint32Array(faces)
+                }
+            ]
+        });
+
+        const symbol = new MeshSymbol3D({
+            symbolLayers: [
+                new FillSymbol3DLayer({
+                    material: { color: SENSOR_FOV_COLOR },
+                    edges: new SolidEdges3D({
+                        color: SENSOR_FOV_EDGE_COLOR,
+                        size: 0.8
+                    })
+                })
+            ]
+        });
+
+        return new Graphic({
+            geometry: mesh,
+            symbol,
+            attributes: {
+                sensorId: sensor.id
+            }
+        }) as __esri.Graphic;
+    }, []);
+
+    const updateSensorFov = useCallback(() => {
+        const layer = sensorFovLayerRef.current;
+        if (!layer) {
+            return;
+        }
+        layer.removeAll();
+        sensorFovGraphicsRef.current.clear();
+
+        if (!sensorFovActiveRef.current) {
+            setSensorFovMessage(null);
+            return;
+        }
+
+        const selection = sensorSelectionRef.current;
+        if (!selection || selection.kind === 'none') {
+            setSensorFovMessage('Select a sensor to draw its field of view.');
+            return;
+        }
+
+        const sensors = selection.sensorIds
+            .map((id) => sensorService.getSensor(id))
+            .filter((sensor): sensor is SensorDefinition => Boolean(sensor));
+
+        if (!sensors.length) {
+            setSensorFovMessage('Select a sensor to draw its field of view.');
+            return;
+        }
+
+        let created = 0;
+        sensors.forEach((sensor) => {
+            const graphic = createSensorFovGraphic(sensor);
+            if (graphic) {
+                const added = layer.add(graphic as any);
+                sensorFovGraphicsRef.current.set(sensor.id, (added ?? graphic) as __esri.Graphic);
+                created++;
+            }
+        });
+
+        if (!created) {
+            setSensorFovMessage('Unable to draw the field of view for the selected sensor.');
+        } else {
+            setSensorFovMessage(null);
+        }
+    }, [createSensorFovGraphic, sensorService]);
+
+    const handleToggleSensorFov = useCallback(() => {
+        setSensorFovActive((prev) => {
+            if (!prev && sensorSelectionRef.current.kind === 'none') {
+                setSensorFovMessage('Select a sensor to enable the field of view overlay.');
+                return prev;
+            }
+            const next = !prev;
+            if (next) {
+                setSensorFovMessage(null);
+            }
+            return next;
+        });
+    }, []);
 
     const [filterPanelVisible, setFilterPanelVisible] = useState(false);
     const [selectedSatellite, setSelectedSatellite] = useState<SatelliteData | null>(null);
@@ -557,12 +898,17 @@ export const ArcGlobe: React.FC = () => {
         sensorService.clearSelection();
         setShowSensors(false);
         setShowSensorInfo(false);
+        setShowSensorFov(false);
+        setSensorFovActive(false);
+        sensorFovActiveRef.current = false;
         setSunLineActive(false);
         setMoonLineActive(false);
         removeSensorLines();
         coverageFlagsRef.current = null;
         applySensorCoverageColors(null);
-    }, [removeSensorLines, applySensorCoverageColors]);
+        clearSensorFov();
+        setSensorFovMessage(null);
+    }, [removeSensorLines, applySensorCoverageColors, clearSensorFov, sensorService]);
 
     const handleGlobalReset = createResetViewHandler({
         instancedApiRef,
@@ -712,6 +1058,11 @@ export const ArcGlobe: React.FC = () => {
         setSelectedFeature(null);
     };
 
+    const handleCloseSensorFov = () => {
+        setShowSensorFov(false);
+        setSelectedFeature(null);
+    };
+
     const handleCloseSensorInfo = () => {
         setShowSensorInfo(false);
         setSelectedFeature(null);
@@ -809,6 +1160,9 @@ export const ArcGlobe: React.FC = () => {
     // Feature handlers
     const handleFeatureSelect = (feature: string) => {
         setSelectedFeature(feature);
+        if (feature !== 'sensor-fov') {
+            setShowSensorFov(false);
+        }
 
         switch (feature) {
             case 'collision':
@@ -940,6 +1294,19 @@ export const ArcGlobe: React.FC = () => {
                 setShowWatchlist(false);
                 setShowSatellitePhotos(false);
                 setShowSensorInfo(false);
+                break;
+            case 'sensor-fov':
+                setShowSensorFov(true);
+                setShowSensors(false);
+                setShowSensorInfo(false);
+                setShowCollisionAnalysis(false);
+                setShowConstellationAnalysis(false);
+                setShowCreateSatellite(false);
+                setShowDebrisScanner(false);
+                setShowColorSchemes(false);
+                setShowTakePhoto(false);
+                setShowWatchlist(false);
+                setShowSatellitePhotos(false);
                 break;
             case 'sensor-info':
                 if (sensorSelectionRef.current.kind === 'none') {
@@ -1126,7 +1493,16 @@ export const ArcGlobe: React.FC = () => {
         }
 
 
-        function start(Map: any, SceneView: any, GraphicsLayer: any, Graphic: any) {
+        function start(
+            Map: any,
+            SceneView: any,
+            GraphicsLayer: any,
+            Graphic: any,
+            Mesh: any,
+            MeshSymbol3D: any,
+            FillSymbol3DLayer: any,
+            SolidEdges3D: any
+        ) {
             function scheduleHoverPick(x: number, y: number) {
                 if (!instancedApi) return;
                 lastMoveX = x; lastMoveY = y;
@@ -1186,6 +1562,19 @@ export const ArcGlobe: React.FC = () => {
             const sensorLinesLayer = new GraphicsLayer({ listMode: 'hide' });
             map.add(sensorLinesLayer);
             sensorLinesLayerRef.current = sensorLinesLayer;
+            const sensorFovLayer = new GraphicsLayer({ listMode: 'hide' });
+            map.add(sensorFovLayer);
+            sensorFovLayerRef.current = sensorFovLayer;
+            sensorFovModulesRef.current = {
+                Mesh,
+                MeshSymbol3D,
+                FillSymbol3DLayer,
+                SolidEdges3D,
+                Graphic
+            };
+            if (sensorFovActiveRef.current) {
+                updateSensorFov();
+            }
             try {
                 screenshotService.setView(view as __esri.SceneView);
             } catch (error) {
@@ -1603,8 +1992,26 @@ export const ArcGlobe: React.FC = () => {
         function boot() {
             if (window.require && divRef.current) {
                 window.require(
-                    ['esri/Map', 'esri/views/SceneView', 'esri/layers/GraphicsLayer', 'esri/Graphic'],
-                    (Map: any, SceneView: any, GraphicsLayer: any, Graphic: any) => start(Map, SceneView, GraphicsLayer, Graphic)
+                    [
+                        'esri/Map',
+                        'esri/views/SceneView',
+                        'esri/layers/GraphicsLayer',
+                        'esri/Graphic',
+                        'esri/geometry/Mesh',
+                        'esri/symbols/MeshSymbol3D',
+                        'esri/symbols/FillSymbol3DLayer',
+                        'esri/symbols/edges/SolidEdges3D'
+                    ],
+                    (
+                        Map: any,
+                        SceneView: any,
+                        GraphicsLayer: any,
+                        Graphic: any,
+                        Mesh: any,
+                        MeshSymbol3D: any,
+                        FillSymbol3DLayer: any,
+                        SolidEdges3D: any
+                    ) => start(Map, SceneView, GraphicsLayer, Graphic, Mesh, MeshSymbol3D, FillSymbol3DLayer, SolidEdges3D)
                 );
             } else {
                 const id = setInterval(() => {
@@ -1631,6 +2038,9 @@ export const ArcGlobe: React.FC = () => {
             });
             trackGraphicsRef.current.clear();
             tracksLayerRef.current = null;
+            clearSensorFov();
+            sensorFovLayerRef.current = null;
+            sensorFovModulesRef.current = null;
             selectedIdRef.current = null;
             setIsLoading(false);
             isLoadingRef.current = false;
@@ -1663,6 +2073,32 @@ export const ArcGlobe: React.FC = () => {
             recomputeSensorCoverage();
         }
     }, [sensorSelectionState, recomputeSensorCoverage, applySensorCoverageColors]);
+
+    useEffect(() => {
+        sensorFovActiveRef.current = sensorFovActive;
+        if (!sensorFovActive) {
+            clearSensorFov();
+            setSensorFovMessage(null);
+            return;
+        }
+        updateSensorFov();
+    }, [sensorFovActive, clearSensorFov, updateSensorFov]);
+
+    useEffect(() => {
+        if (sensorSelectionState.kind === 'none') {
+            if (sensorFovActiveRef.current) {
+                setSensorFovActive(false);
+            } else {
+                clearSensorFov();
+                setSensorFovMessage(null);
+            }
+            return;
+        }
+        setSensorFovMessage(null);
+        if (sensorFovActiveRef.current) {
+            updateSensorFov();
+        }
+    }, [sensorSelectionState, updateSensorFov, clearSensorFov]);
 
     useEffect(() => (
         orbitPlotService.subscribe((event) => {
@@ -1770,32 +2206,43 @@ export const ArcGlobe: React.FC = () => {
                                                 onReset: handleSensorsPanelReset
                                             }
                                         }
-                                        : showSensorInfo
+                                        : showSensorFov
                                             ? {
-                                                name: 'sensor-info',
+                                                name: 'sensor-fov',
                                                 props: {
-                                                    onClose: () => handleCloseSensorInfo(),
-                                                    onToggleSunLine: handleToggleSunLine,
-                                                    onToggleMoonLine: handleToggleMoonLine,
-                                                    sunLineActive,
-                                                    moonLineActive
+                                                    onClose: () => handleCloseSensorFov(),
+                                                    onToggle: handleToggleSensorFov,
+                                                    active: sensorFovActive,
+                                                    hasSelection: sensorSelectionState.kind !== 'none',
+                                                    message: sensorFovMessage
                                                 }
                                             }
-                                            : orbitPlotState
+                                            : showSensorInfo
                                                 ? {
-                                                    name: 'orbit-plot',
+                                                    name: 'sensor-info',
                                                     props: {
-                                                        onClose: handleCloseOrbitPlot,
-                                                        mode: orbitPlotState.mode,
-                                                        worker: workerRef.current,
-                                                        satelliteIds: orbitPlotState.satellites,
-                                                        title: orbitPlotState.title,
-                                                        data: orbitPlotState.series,
-                                                        loading: orbitPlotState.isLoading,
-                                                        error: orbitPlotState.error
+                                                        onClose: () => handleCloseSensorInfo(),
+                                                        onToggleSunLine: handleToggleSunLine,
+                                                        onToggleMoonLine: handleToggleMoonLine,
+                                                        sunLineActive,
+                                                        moonLineActive
                                                     }
                                                 }
-                                                : null;
+                                                : orbitPlotState
+                                                    ? {
+                                                        name: 'orbit-plot',
+                                                        props: {
+                                                            onClose: handleCloseOrbitPlot,
+                                                            mode: orbitPlotState.mode,
+                                                            worker: workerRef.current,
+                                                            satelliteIds: orbitPlotState.satellites,
+                                                            title: orbitPlotState.title,
+                                                            data: orbitPlotState.series,
+                                                            loading: orbitPlotState.isLoading,
+                                                            error: orbitPlotState.error
+                                                        }
+                                                    }
+                                                    : null;
 
     const activeFeatureTitle = activeFeature ? (
         activeFeature.name === 'collision' ? 'Collision Analysis'
@@ -1807,13 +2254,15 @@ export const ArcGlobe: React.FC = () => {
                                 : activeFeature.name === 'watchlist' ? 'Watchlist'
                                     : activeFeature.name === 'satellite-photos' ? 'Satellite Photos'
                                         : activeFeature.name === 'sensors' ? 'Sensors'
-                                            : activeFeature.name === 'sensor-info' ? 'Sensor Info'
-                                                : activeFeature.name === 'orbit-plot' ? activeFeature.props.title
-                                                    : null
+                                            : activeFeature.name === 'sensor-fov' ? 'Sensor FOV'
+                                                : activeFeature.name === 'sensor-info' ? 'Sensor Info'
+                                                    : activeFeature.name === 'orbit-plot' ? activeFeature.props.title
+                                                        : null
     ) : null;
 
     const featureAvailability = useMemo(() => ({
-        'sensor-info': sensorSelectionState.kind !== 'none'
+        'sensor-info': sensorSelectionState.kind !== 'none',
+        'sensor-fov': sensorSelectionState.kind !== 'none'
     }), [sensorSelectionState.kind]);
 
     return (
@@ -1857,6 +2306,7 @@ export const ArcGlobe: React.FC = () => {
                     setShowSatellitePhotos(false);
                     setShowSensors(false);
                     setShowSensorInfo(false);
+                    setShowSensorFov(false);
                     setSunLineActive(false);
                     setMoonLineActive(false);
                     removeSensorLines();

@@ -59,6 +59,7 @@ export const FeatureMenu: React.FC<FeatureMenuProps> = ({
             { id: 'watchlist', name: 'Watchlist', icon: '⭐', description: 'Monitor priority satellites' },
             { id: 'satellite-photos', name: 'Satellite Photos', icon: '🖼️', description: 'View latest Earth imagery from satellites' },
             { id: 'sensors', name: 'Sensors', icon: '📡', description: 'Browse ground sensors and coverage' },
+            { id: 'sensor-fov', name: 'Sensor FOV', icon: '🔷', description: 'Visualize sensor fields of view' },
             { id: 'sensor-info', name: 'Sensor Info', icon: 'ℹ️', description: 'View details for the selected sensor' },
             { id: 'create-breakup', name: 'Create Breakup', icon: '💥', description: 'Simulate satellite breakup event' }
         ],
