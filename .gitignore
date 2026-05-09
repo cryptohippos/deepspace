@@ -127,3 +127,7 @@ stats.json
 # Cypress Testing Files
 cypress
 cypress.config.ts
+
+*/.DS_Store
+.DS_Store
+**/.DS_Store
